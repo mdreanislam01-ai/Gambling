@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="%LOCALE%" dir="ltr" data-theme="midnight">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#060913" />
+<meta name="description" content="ArenaPlay — bilingual demo casino & sports gaming platform. Virtual credits only, no real money. দ্বিভাষিক ডেমো ক্যাসিনো ও স্পোর্টস গেমিং প্ল্যাটফর্ম।" />
+<title>ArenaPlay — Demo Casino & Sports</title>
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+<link rel="manifest" href="/app.webmanifest" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="/css/app.css" />
+<script type="module" nonce="%CSP_NONCE%">
+  window.__BOOT__ = %BOOT%;
+</script>
+<script type="module" src="/js/app.js" nonce="%CSP_NONCE%"></script>
+</head>
+<body>
+<a class="skip-link" href="#main" data-i18n="a11y.skip">Skip to content</a>
+<div id="boot-splash" class="boot-splash" role="status" aria-live="polite">
+  <div class="boot-mark" aria-hidden="true"></div>
+  <p class="boot-text" data-i18n="app.loading">Loading ArenaPlay…</p>
+  <div class="boot-bar"><span></span></div>
+</div>
+<div id="app" class="app-root" hidden></div>
+<noscript>
+  <div class="noscript">
+    <h1>ArenaPlay</h1>
+    <p>This demo platform needs JavaScript. / এই ডেমো প্ল্যাটফর্মের জন্য JavaScript প্রয়োজন।</p>
+  </div>
+</noscript>
+<div id="toast-region" class="toast-region" role="region" aria-live="assertive" aria-label="Notifications"></div>
+<div id="modal-root"></div>
+</body>
+</html>

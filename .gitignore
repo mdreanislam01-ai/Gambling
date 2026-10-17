@@ -1,0 +1,15 @@
+node_modules/
+# Anchored on purpose: a bare `data/` also matched `src/data/`, which silently
+# kept the legal documents out of every commit — and a workspace restore that
+# drops untracked files then left the server unable to boot.
+/data/
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.local
+coverage/
+*.log
+.DS_Store
+/dist/
+/.tmp/

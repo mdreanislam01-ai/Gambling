@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ArenaPlay">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7dd9a"/>
+      <stop offset=".55" stop-color="#e3b341"/>
+      <stop offset="1" stop-color="#a97d1c"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="#060913"/>
+  <rect x="1.5" y="1.5" width="61" height="61" rx="13" fill="none" stroke="#e3b341" stroke-opacity=".38" stroke-width="3"/>
+  <path d="M32 12c6.8 8.4 14 14.4 14 22.4C46 43.2 39.7 50 32 50s-14-6.8-14-15.6C18 26.4 25.2 20.4 32 12Z" fill="none" stroke="url(#g)" stroke-width="3.4"/>
+  <circle cx="32" cy="34" r="6.4" fill="url(#g)"/>
+  <circle cx="32" cy="34" r="2.2" fill="#060913"/>
+</svg>

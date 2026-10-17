@@ -1,0 +1,31 @@
+{
+  "name": "ArenaPlay — Demo Casino & Sports",
+  "short_name": "ArenaPlay",
+  "description": "Demo casino floor and sports book with virtual credits only: slots, roulette, blackjack, live-style tables, crash games, cricket and football. No real money, no deposits, no withdrawals.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#060913",
+  "theme_color": "#060913",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["games", "sports", "entertainment"],
+  "icons": [
+    { "src": "/assets/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/assets/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/assets/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Casino lobby", "short_name": "Casino", "url": "/casino", "icons": [{ "src": "/assets/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Live tables", "short_name": "Live", "url": "/live", "icons": [{ "src": "/assets/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Sports book", "short_name": "Sports", "url": "/sports", "icons": [{ "src": "/assets/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Wallet & history", "short_name": "Account", "url": "/account/wallet", "icons": [{ "src": "/assets/icon-192.png", "sizes": "192x192" }] }
+  ],
+  "protocol_handlers": [{ "protocol": "web+arenaplay", "url": "/casino?q=%s" }],
+  "screenshots": [],
+  "prefer_related_applications": false
+}
