@@ -1,0 +1,69 @@
+# Nothing in this workflow is decorative: every step is a check the repository already
+# relies on locally, so a green CI means the same thing as running them by hand.
+# The Node version is pinned for a reason — `node:sqlite` landed in 22.5 and older
+# runtimes cannot open the database at all.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # node:sqlite requires >= 22.5.
+          node-version: '22'
+          cache: npm
+
+      - name: Install (jsdom is for the DOM check; the app itself needs nothing)
+        run: npm ci
+
+      - name: Show the runtime these checks are measured on
+        run: node --version
+
+      - name: Migrate and seed the demo database
+        run: npm run reset
+
+      - name: Syntax-check the server entrypoint
+        run: npm run check
+
+      - name: Test suite
+        run: npm test
+
+      - name: Paytables and odds must match what the engines pay
+        run: npm run check:rtp
+
+      - name: English and Bangla catalogues must be complete
+        run: npm run check:locale
+
+      - name: Imports, assets, links and manifest icons must resolve
+        run: npm run check:web
+
+      - name: The SPA must render in both languages, and a bet must be placeable
+        run: npm run check:dom
+
+      # Demo mode is a product rule, not a preference: the server refuses to boot with
+      # real money enabled, and the shipped defaults must never drift.
+      - name: Fail if a real-money default crept into the example config
+        run: |
+          if grep -Eq '^[[:space:]]*(REAL_MONEY_ENABLED=true|DEMO_MODE=false)' .env.example; then
+            echo 'this repository ships demo mode only' >&2
+            exit 1
+          fi
+          echo 'demo-mode defaults intact'

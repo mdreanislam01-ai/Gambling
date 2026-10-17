@@ -41,10 +41,11 @@ bets, so every screen has something real to show on the first load.
 ## Check it
 
 ```bash
-npm test                      # 118 tests in 5 files: registration, login, lockout and
+npm test                      # 123 tests in 6 files: registration, login, lockout and
                               # sessions; betting, the wallet ledger, limits and fairness;
-                              # 53 engine maths contracts; security and configuration;
-                              # the bilingual policy documents
+                              # sports slips (multi-leg singles and parlays) measured
+                              # against the ledger; 53 engine maths contracts; security
+                              # and configuration; the bilingual policy documents
 npm run check:rtp             # measures 20 000 rounds per game against the advertised
                               # return; fails above 103% or >6pp off the label
 npm run check:locale          # 1 938 keys per language: same key set, same
@@ -58,8 +59,9 @@ npm run check:dom             # renders the real SPA in jsdom: 65 page renders a
                               # leaked value. Skips (does not fail) if jsdom is absent
 ```
 
-All five are wired into CI-friendly exit codes and are the reason a claim of
-"tested" here means something. `check:dom` exists because a build-less frontend can
+All five exit non-zero on failure, and `.github/workflows/ci.yml` runs every one of
+them on each pull request (plus a guard that the demo-mode defaults in `.env.example`
+never drift) — they are the reason a claim of "tested" here means something. `check:dom` exists because a build-less frontend can
 fail quietly: a mistyped import or a wrong function name still serves HTTP 200 with a
 blank `<main>`, and it found exactly that (a dead router, an empty game registry, a
 result the next repaint erased) — none of which any server-side test could see.
@@ -139,8 +141,8 @@ public/
   js/pages/            home, lobby, game, live, sports, account, auth, admin, info
   js/game/             session loop, per-engine views, table widgets
   js/locales/en|bn/    the catalogues, seven group files each
-tools/                 check-rtp, check-locales, check-web, make-icons
-tests/                 5 node:test files, isolated temp database per file
+tools/                 check-rtp, check-locales, check-web, smoke-dom, make-icons
+tests/                 6 node:test files, isolated temp database per file
 docs/                  API.md, db-schema.md, ARCHITECTURE.md
 ```
 
