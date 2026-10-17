@@ -1,0 +1,29 @@
+{
+  "name": "arena-play-gaming-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ArenaPlay — bilingual (বাংলা/English) demo-mode casino & sports gaming platform. Zero runtime dependencies: Node.js built-in http + node:sqlite.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "node src/db/cli.js migrate",
+    "seed": "node src/db/cli.js seed",
+    "reset": "node src/db/cli.js reset",
+    "test": "node --test --test-concurrency=1 tests/",
+    "check": "node --check src/server.js"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "keywords": [
+    "casino-demo",
+    "responsible-gaming",
+    "bilingual",
+    "sqlite",
+    "provably-fair"
+  ],
+  "license": "MIT"
+}

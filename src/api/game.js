@@ -1,0 +1,170 @@
+import { HttpError } from '../lib/http.js';
+import config from '../config.js';
+import { get, all, run } from '../db/index.js';
+import { clamp, toCents } from '../lib/util.js';
+import * as catalog from '../services/catalog.js';
+import { listUserBets, placeCasinoBet, actOnBet, getActiveHand, abandonHand, stats as betStats } from '../services/bets.js';
+import { walletSummary, transactions, dailyResetBonus, netLossToday, transactionCount } from '../services/wallet.js';
+import { seedView, historySeeds, setClientSeed, rotateSeed, verifyBet } from '../services/fairness.js';
+import { crashEngine, crashPublicState, roundHistory } from '../services/crash.js';
+import { liveEngine } from '../services/live.js';
+import { readStake } from './auth.js';
+
+const requireUser = (ctx) => {
+  if (!ctx.user) throw new HttpError(401, 'auth.required');
+  return ctx.rawUser ?? { id: ctx.user.id, ...ctx.user };
+};
+
+export function registerGameRoutes(route) {
+  route('GET', '/api/games', (ctx) => {
+    const q = ctx.query;
+    const rows = catalog.listGames({
+      category: q.category || null,
+      search: q.search || null,
+      sort: q.sort || 'curated',
+      userId: ctx.user?.id ?? null,
+      limit: clamp(Number(q.limit) || 60, 1, 120),
+      offset: Math.max(0, Number(q.offset) || 0),
+    });
+    return { rows, total: catalog.countGames(), categories: catalog.categoriesWithCounts() };
+  });
+
+  route('GET', '/api/games/categories', () => ({ rows: catalog.categoriesWithCounts() }));
+
+  route('GET', '/api/games/:key', (ctx) => {
+    const game = catalog.getGame(ctx.params.key) ||
+      (ctx.user?.role === 'admin' ? catalog.updateGame(ctx.params.key, {}) : null);
+    if (!game) throw new HttpError(404, 'err.game_not_found');
+    const live = all(`SELECT status FROM bets WHERE user_id = :u AND game_key = :k AND status = 'pending'`, { u: ctx.user?.id ?? 0, k: ctx.params.key });
+    return {
+      game,
+      favorites: ctx.user ? catalog.favoriteKeys(ctx.user.id) : [],
+      hasPendingHand: live.length > 0,
+      recentWins: all(
+        `SELECT b.public_id, b.stake, b.payout, b.multiplier, b.created_at FROM bets b
+         WHERE b.game_key = :k AND b.status IN ('won','cashout') ORDER BY b.id DESC LIMIT 8`, { k: ctx.params.key }
+      ),
+    };
+  });
+
+  route('POST', '/api/games/:key/bet', { auth: true, limit: 'bet' }, async (ctx) => {
+    const user = requireUser(ctx);
+    const stake = readStake(ctx.body);
+    const out = await placeCasinoBet({
+      user,
+      gameKey: ctx.params.key,
+      stake,
+      selection: ctx.body?.selection ?? {},
+      clientSeed: ctx.body?.clientSeed,
+    });
+    return { ...out, wallet: walletSummary(user.id), demo: true };
+  });
+
+  route('GET', '/api/bets/active', { auth: true }, (ctx) => ({
+    hand: getActiveHand(ctx.user.id, ctx.query.gameKey || null),
+  }));
+
+  route('POST', '/api/bets/:id/action', { auth: true, limit: 'bet' }, async (ctx) => {
+    const user = requireUser(ctx);
+    const out = await actOnBet({ user, betId: ctx.params.id, action: String(ctx.body?.action || ''), selection: ctx.body?.selection ?? {} });
+    return { ...out, wallet: walletSummary(user.id) };
+  });
+
+  route('POST', '/api/bets/:id/abandon', { auth: true }, (ctx) => {
+    const bet = abandonHand(ctx.user.id, ctx.params.id);
+    return { ok: true, bet, wallet: walletSummary(ctx.user.id) };
+  });
+
+  route('GET', '/api/bets', { auth: true }, (ctx) => {
+    const { rows, total } = listUserBets(ctx.user.id, {
+      limit: clamp(Number(ctx.query.limit) || 25, 1, 100),
+      offset: Math.max(0, Number(ctx.query.offset) || 0),
+      gameKey: ctx.query.gameKey || null,
+      status: ctx.query.status || null,
+      kind: ctx.query.kind || null,
+    });
+    return { rows, total, stats: betStats.userGameStats(ctx.user.id), games: catalog.listGames({ limit: 200 }).map((g) => ({ key: g.key, name: g.name, nameKey: g.nameKey })) };
+  });
+
+  route('GET', '/api/wallet', { auth: true }, (ctx) => ({
+    ...walletSummary(ctx.user.id),
+    transactions: transactions(ctx.user.id, {
+      limit: clamp(Number(ctx.query.limit) || 25, 1, 100),
+      offset: Math.max(0, Number(ctx.query.offset) || 0),
+      kind: ctx.query.kind || null,
+    }),
+    transactionCount: transactionCount(ctx.user.id),
+    todayLoss: netLossToday(ctx.user.id),
+    limits: {
+      dailyLoss: ctx.user.limits.dailyLoss,
+      weeklyWager: ctx.user.limits.weeklyWager,
+      sessionMinutes: ctx.user.limits.sessionMinutes,
+    },
+    demoNotice: { titleKey: 'rg.demo_notice', currency: config.demo.currency, unitLabel: 'demo_credit' },
+  }));
+
+  route('POST', '/api/wallet/claim-daily', { auth: true, limit: 'write' }, (ctx) => {
+    const amount = dailyResetBonus(ctx.user.id);
+    if (!amount) throw new HttpError(409, 'wallet.daily_already');
+    return { amount, wallet: walletSummary(ctx.user.id) };
+  });
+
+  route('GET', '/api/favorites', { auth: true }, (ctx) => ({ keys: catalog.favoriteKeys(ctx.user.id) }));
+
+  route('POST', '/api/favorites/:gameKey', { auth: true, limit: 'write' }, (ctx) => ({
+    ...catalog.setFavorite(ctx.user.id, ctx.params.gameKey, ctx.body?.on !== false),
+    keys: catalog.favoriteKeys(ctx.user.id),
+  }));
+
+  route('GET', '/api/fairness', { auth: true }, (ctx) => ({
+    current: seedView(ctx.user.id),
+    revealed: historySeeds(ctx.user.id, 20),
+    explanationKey: 'fairness.explain',
+    engine: 'HMAC-SHA256(server_seed, "game:nonce:client_seed")',
+  }));
+
+  route('POST', '/api/fairness/client-seed', { auth: true, limit: 'write' }, (ctx) => ({
+    ...setClientSeed(ctx.user.id, ctx.body?.clientSeed),
+    current: seedView(ctx.user.id),
+  }));
+
+  route('POST', '/api/fairness/rotate', { auth: true, limit: 'write' }, (ctx) => rotateSeed(ctx.user.id));
+
+  route('GET', '/api/fairness/verify/:betId', (ctx) => verifyBet(ctx.params.betId));
+
+  route('GET', '/api/crash', (ctx) => ({
+    state: crashPublicState(ctx.user),
+    history: roundHistory(24),
+    growth: crashEngine.growth,
+  }));
+
+  route('POST', '/api/crash/cashout', { auth: true, limit: 'bet' }, (ctx) => {
+    const user = requireUser(ctx);
+    const out = crashEngine.cashout(user, String(ctx.body?.bet || ''), Number(ctx.body?.multiplier) || 0);
+    return { ...out, wallet: walletSummary(user.id), state: crashPublicState(user) };
+  });
+
+  route('GET', '/api/live/tables', (ctx) => ({
+    rows: catalog.listLiveTables().map((t) => ({ ...t, live: liveEngine.stateFor(t.key, ctx.user?.id ?? null) })),
+    simulated: true,
+  }));
+
+  route('GET', '/api/live/:key', (ctx) => {
+    const state = liveEngine.stateFor(ctx.params.key, ctx.user?.id ?? null);
+    if (!state) throw new HttpError(404, 'live.table_not_found');
+    return { table: catalog.listLiveTables().find((t) => t.key === ctx.params.key) || null, ...state };
+  });
+
+  route('POST', '/api/live/:key/bet', { auth: true, limit: 'bet' }, (ctx) => {
+    const user = requireUser(ctx);
+    const stake = readStake(ctx.body);
+    const out = liveEngine.join({ user, tableKey: ctx.params.key, stake, selection: ctx.body?.selection ?? {} });
+    return { ...out, wallet: walletSummary(user.id), state: liveEngine.stateFor(ctx.params.key, user.id) };
+  });
+
+  route('GET', '/api/rounds/:gameKey', (ctx) => ({
+    rows: all(`SELECT id, status, result, server_seed_hash, server_seed, started_at, ended_at FROM game_rounds
+               WHERE game_key = :g ORDER BY id DESC LIMIT 30`, { g: ctx.params.gameKey })
+      .map((r) => ({ ...r, result: JSON.parse(r.result || 'null') })),
+  }));
+}
