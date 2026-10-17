@@ -449,8 +449,15 @@ describe('live delivery', () => {
       reader.cancel().catch(() => {});
     })();
     await new Promise((r) => setTimeout(r, 120));
-    await c.post(`/api/games/lucky-dice/bet`, { stakeCents: Math.max(game.minBet, 1000) });
-    await Promise.race([pump, new Promise((r) => setTimeout(r, 4000))]);
+    const bet = await c.post(`/api/games/lucky-dice/bet`, { stakeCents: Math.max(game.minBet, 1000) });
+    assert.equal(bet.status, 200, `the bet itself failed, so no wallet event could follow: ${JSON.stringify(bet.body?.error || bet.body)}`);
+    // Poll for the frame rather than racing a fixed stopwatch: a CI runner can take
+    // several seconds to flush one SSE write, and a 4s ceiling turned that into a
+    // red suite for reasons that had nothing to do with the product.
+    const deadline = Date.now() + 20_000;
+    while (!/wallet:update/.test(seen) && Date.now() < deadline) {
+      await Promise.race([pump, new Promise((r) => setTimeout(r, 50))]);
+    }
     const frame = seen.split('\n\n').find((b) => b.includes('wallet:update'));
     assert.ok(frame, `expected a wallet:update frame, got:\n${seen.slice(0, 300)}`);
     const payload = JSON.parse(frame.split('\ndata: ')[1]);
