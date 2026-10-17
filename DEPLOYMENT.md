@@ -212,3 +212,26 @@ database and executes each check, so a red pipeline means one of them regressed.
 - [ ] Admin routes 403 for a non-admin token, and the audit log shows the attempt.
 - [ ] `GET /api/health` is green and a sign-in, a bet, a language switch and a reset link all work end to end.
 - [ ] Nothing in the deployment offers a deposit, withdrawal or prize, and no payment keys exist anywhere in the environment.
+
+## 9. Vercel (serverless demo)
+
+`vercel.json` + `api/entry.js` make the project deployable on Vercel: every
+request is routed into one Node function that boots the same stack the
+`src/server.js` process would (migrations, demo seed, crash/live engines) and
+hands the request to the shared handler. The database lives in `/tmp`
+(`DATA_DIR` falls back to it automatically) and `SESSION_SECRET` is derived
+from the project id when unset — set it in the dashboard to keep a stable key.
+
+Import the GitHub repository at <https://vercel.com/new>, deploy, and the site
+serves at `https://<project>.vercel.app` (the free `*.vercel.app` domain).
+
+Known limits of this target — a VPS (sections 1–5) is the faithful deployment:
+
+- `/tmp` is per-instance and ephemeral: accounts, bets and sessions reset on a
+  cold start, and two concurrent instances do not share one database.
+- The crash round clock and live studio tables are in-process; they only tick
+  while the instance is warm, so those tables can stall under light traffic.
+- `/api/events` (SSE) is cut at the function `maxDuration` and the client
+  reconnects; live updates arrive in bursts rather than continuously.
+- Single-instance semantics (section 1) cannot be enforced; do not treat a
+  Vercel deployment as anything but a public demo.
