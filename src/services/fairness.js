@@ -64,15 +64,30 @@ export function historySeeds(userId, limit = 20) {
 }
 
 /** Commit the nonce that the next bet will consume (inside the bet transaction). */
-export function nextNonce(userId) {
+/**
+ * Consume the nonce the next bet will use, inside that bet's transaction.
+ *
+ * A bet may also carry a new client seed. It has to be applied *here*, before the
+ * value is returned, because the roll is derived from exactly this triple: writing
+ * it afterwards meant the stored bet claimed one client seed while the engine had
+ * consumed another, and any bet that changed the seed was unverifiable.
+ */
+export function nextNonce(userId, clientSeed) {
   const cur = currentSeed(userId);
+  let client = cur.client_seed;
+  if (clientSeed !== undefined && clientSeed !== null) {
+    client = String(clientSeed).trim().slice(0, 48) || 'player';
+    if (client !== cur.client_seed) {
+      run(`UPDATE fairness_seeds SET client_seed = :c WHERE id = :id`, { c: client, id: cur.id });
+    }
+  }
   const nonce = cur.nonce + 1;
   run(`UPDATE fairness_seeds SET nonce = :n WHERE id = :id`, { n: nonce, id: cur.id });
   return {
     seedId: cur.id,
     serverSeed: cur.server_seed,
     serverSeedHash: cur.server_seed_hash,
-    clientSeed: cur.client_seed,
+    clientSeed: client,
     nonce,
   };
 }
@@ -93,7 +108,28 @@ export async function verifyBet(betPublicId) {
   if (!seedRow.server_seed || !seedRow.revealed) return { ok: false, reason: 'seed_not_revealed', expectedHash: bet.server_seed_hash, note: 'reveal the seed on /fairness to verify bets made with it' };
   const { ENGINES } = await import('../games/index.js');
   const engine = ENGINES[bet.engine];
-  if (!engine?.run) return { ok: false, reason: 'engine_round_based', gameKey: bet.game_key };
+  const committed = {
+    hashMatches: sha256(seedRow.server_seed) === bet.server_seed_hash,
+    serverSeed: seedRow.server_seed,
+    clientSeed: bet.client_seed || seedRow.client_seed,
+    nonce: bet.nonce,
+    seedId: seedRow.id,
+  };
+  if (!engine?.run) return { ok: false, reason: 'engine_round_based', gameKey: bet.game_key, ...committed };
+  // A hand with decisions in it cannot be replayed from the seed alone: the
+  // player's own actions are part of the result, and they are recorded in the bet
+  // state, not re-derivable. Saying "mismatch" for those bets would be the
+  // software accusing itself of cheating, so the claim is scoped instead.
+  if (engine.multiStep) {
+    return {
+      ok: false,
+      reason: 'multi_step',
+      scope: 'not_replayable',
+      gameKey: bet.game_key,
+      note: 'The deal is drawn from the committed seed above; your hit/stand/hold choices are recorded on the bet itself.',
+      ...committed,
+    };
+  }
   // Rebuild the game exactly as the play path saw it (shaped, camelCase fields).
   // Using the raw DB row here made the house edge read as undefined, so the
   // recomputed payout could differ by a cent and verification said "mismatch".
@@ -110,13 +146,18 @@ export async function verifyBet(betPublicId) {
   } catch (err) {
     return { ok: false, reason: 'recompute_failed', detail: String(err.message).slice(0, 160) };
   }
+  // Every field must line up, not only the payout: two different rolls can pay
+  // the same amount by coincidence, and a check that ignores that is a tick on a
+  // sticker rather than a verification.
+  const digest = (o) => JSON.stringify({ payout: o?.payout ?? null, status: o?.status ?? null, multiplier: o?.multiplier ?? null, outcome: o?.outcome ?? null });
+  const sameResult = !!recomputed && digest(recomputed) === digest({ payout: bet.payout, status: bet.status, multiplier: bet.multiplier, outcome: json(bet.outcome, {}) });
+  const hashOk = sha256(seedRow.server_seed) === bet.server_seed_hash;
   return {
-    ok: recomputed?.payout === bet.payout,
-    reason: recomputed?.payout === bet.payout ? 'verified' : 'mismatch',
-    hashMatches: sha256(seedRow.server_seed) === bet.server_seed_hash,
-    serverSeed: seedRow.server_seed,
-    clientSeed: bet.client_seed || seedRow.client_seed,
-    nonce: bet.nonce,
+    ok: sameResult && hashOk,
+    reason: !sameResult ? 'outcome_mismatch' : (hashOk ? 'verified' : 'hash_mismatch'),
+    scope: 'full',
+    gameKey: bet.game_key,
+    ...committed,
     recomputed: { payout: recomputed?.payout, status: recomputed?.status, multiplier: recomputed?.multiplier, outcome: recomputed?.outcome },
     stored: { payout: bet.payout, status: bet.status, multiplier: bet.multiplier, outcome: json(bet.outcome, {}) },
   };

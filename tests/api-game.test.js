@@ -99,19 +99,26 @@ describe('placing bets', () => {
     const big = Math.min(game.maxBet, 400000);
     const first = await broke.post(`/api/games/lucky-dice/bet`, { stakeCents: big });
     assert.equal(first.status, 200, JSON.stringify(first.body));
-    const drain = async () => {
-      for (let i = 0; i < 30; i += 1) {
-        const bal = (await broke.get('/api/wallet')).body.data.balance;
-        if (bal < big) return bal;
-        await broke.post(`/api/games/lucky-dice/bet`, { stakeCents: big }).catch(() => {});
-      }
-      return (await broke.get('/api/wallet')).body.data.balance;
-    };
-    const left = await drain();
-    const poor = await broke.post(`/api/games/lucky-dice/bet`, { stakeCents: left + 100000 });
+    // Draining the balance by gambling would make this a coin toss — a couple of
+    // wins put the money back, and then the stake asked for runs into the table
+    // limit before it ever reaches the balance check. The admin debit moves the
+    // same money through the ledger, so only the error code is under test.
+    const balNow = (await broke.get('/api/wallet')).body.data.balance;
+    const left = game.minBet - 1;
+    const admin = await app.admin();
+    const adjust = await admin.post(`/api/admin/users/${broke.identity.userId}/credits`, {
+      amountCents: left - balNow,
+      reason: 'test: leave the balance one credit below the table minimum',
+    });
+    assert.equal(adjust.status, 200, JSON.stringify(adjust.body));
+    assert.equal((await broke.get('/api/wallet')).body.data.balance, left, 'the debit landed');
+    const poor = await broke.post(`/api/games/lucky-dice/bet`, { stakeCents: game.minBet });
     assert.equal(poor.status, 400);
-    assert.equal(code(poor), 'err.insufficient_balance');
-    assert.deepEqual({ ...poor.body.error.params, need: undefined, have: undefined }, { need: undefined, have: undefined });
+    assert.equal(code(poor), 'err.insufficient_balance', 'the stake is legal here, so the balance is what refuses it');
+    assert.equal(poor.body.error.params.need, game.minBet);
+    assert.equal(poor.body.error.params.have, left);
+    const refunded = app.db.get('SELECT kind FROM transactions WHERE user_id = ? ORDER BY id DESC LIMIT 1', [broke.identity.userId]);
+    assert.equal(refunded.kind, 'admin_debit', 'a staff adjustment is recorded as a debit, not a silent rewrite');
     assert.ok(poor.body.error.params.have <= left + 100000);
   });
 
@@ -342,7 +349,8 @@ describe('provably fair', () => {
   it('commits a seed up front and lets anyone re-verify once it is revealed', async () => {
     const c = await app.player();
     const game = (await c.get('/api/games/lucky-dice')).body.data.game;
-    const bet = await c.post(`/api/games/lucky-dice/bet`, { stakeCents: Math.max(game.minBet, 1000), clientSeed: 'my-own-seed' });
+    const stake = Math.max(game.minBet, 1000);
+    const bet = await c.post(`/api/games/lucky-dice/bet`, { stakeCents: stake, clientSeed: 'my-own-seed' });
     assert.equal(bet.status, 200);
     const fair = await c.get('/api/fairness');
     assert.equal(fair.status, 200);
@@ -360,13 +368,57 @@ describe('provably fair', () => {
     assert.equal(bogus.body.data.ok, false);
     assert.equal(bogus.body.data.reason, 'not_found');
 
+    // A bet that changes the client seed must be verifiable too: the roll has to
+    // be derived from the value the bet records, not from the previous one.
+    const changed = await c.post('/api/games/lucky-dice/bet', { stakeCents: stake, clientSeed: 'my-own-seed-2' });
+    assert.equal(changed.status, 200);
+    assert.equal(changed.body.data.bet.fair.clientSeed, 'my-own-seed-2');
+    const changedRow = app.db.get('SELECT client_seed, nonce FROM bets WHERE public_id = ?', [changed.body.data.bet.id]);
+    assert.equal(changedRow.client_seed, 'my-own-seed-2', 'the bet row carries the seed that produced the roll');
+
+    // Placed under this epoch so the rotation reveals it too.
+    const bj = await c.post('/api/games/classic-blackjack/bet', { stakeCents: stake });
+    const bjBetId = bj.body.data.bet.id;
+
     const rotate = await c.post('/api/fairness/rotate', {});
     assert.equal(rotate.status, 200);
     const after = await c.get('/api/fairness');
     assert.notEqual(after.body.data.current.serverSeedHash, fair.body.data.current.serverSeedHash, 'a new epoch starts');
     assert.ok(after.body.data.revealed.length >= 1, 'the retired seed is revealed for auditing');
+    const reRolled = await app.client().get(`/api/fairness/verify/${changed.body.data.bet.id}`);
+    assert.equal(reRolled.body.data.ok, true, `the roll must reproduce exactly, not merely pay the same: ${reRolled.body.data.reason}`);
+    assert.equal(reRolled.body.data.scope, 'full');
+    assert.equal(reRolled.body.data.recomputed.outcome.roll, reRolled.body.data.stored.outcome.roll, 'the dice roll itself is reproduced');
+    assert.equal(reRolled.body.data.hashMatches, true);
+    assert.equal(reRolled.body.data.clientSeed, 'my-own-seed-2');
+    assert.ok(typeof reRolled.body.data.nonce === 'number');
+    // A stored result the seed cannot reproduce must be reported, never ticked.
+    // (Raising the stake alone is not a contradiction: a lost round pays nothing
+    // at any stake, so the tamper goes on the result itself.)
+    const id2 = changed.body.data.bet.id;
+    const original = app.db.get('SELECT payout, status FROM bets WHERE public_id = ?', [id2]);
+    app.db.run('UPDATE bets SET payout = 90000, status = \'won\' WHERE public_id = ?', [id2]);
+    const caught = await app.client().get(`/api/fairness/verify/${id2}`);
+    assert.equal(caught.body.data.ok, false, 'a payout the seed cannot reproduce is reported, not ticked');
+    assert.equal(caught.body.data.reason, 'outcome_mismatch');
+    assert.equal(caught.body.data.hashMatches, true, 'the commitment still matches — it is the stored result that does not');
+    app.db.run('UPDATE bets SET payout = ?, status = ? WHERE public_id = ?', [original.payout, original.status, id2]);
+    const restored = await app.client().get(`/api/fairness/verify/${id2}`);
+    assert.equal(restored.body.data.ok, true, 'and the honest row verifies again');
+
+    // Blackjack is played with decisions, so only the deal comes from the seed;
+    // the answer must say that instead of accusing the table of a mismatch.
+    const bjVerify = await app.client().get(`/api/fairness/verify/${bjBetId}`);
+    assert.equal(bjVerify.body.data.reason, 'multi_step');
+    assert.equal(bjVerify.body.data.scope, 'not_replayable');
+    assert.equal(bjVerify.body.data.hashMatches, true, 'the commitment is still checkable');
+
     const stillVerifiable = await app.client().get('/api/fairness/verify/' + bet.body.data.bet.id);
-    assert.equal(stillVerifiable.body.data.ok, true, 'old bets stay verifiable once the seed is revealed');
+    assert.equal(
+      stillVerifiable.body.data.ok,
+      true,
+      `old bets stay verifiable once the seed is revealed — reason ${stillVerifiable.body.data.reason}, stored ${JSON.stringify(stillVerifiable.body.data.stored)}, recomputed ${JSON.stringify(stillVerifiable.body.data.recomputed)}`
+    );
   });
 
   it('validates the client seed shape', async () => {

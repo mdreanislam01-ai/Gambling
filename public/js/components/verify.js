@@ -7,11 +7,16 @@ import { modal, toastError } from '../core/ui.js';
 export function verificationHtml(v) {
   if (!v || v.ok === undefined) return html`<p class="section__sub">${t('fairness.none')}</p>`;
   const reason = `fairness.reason.${v.reason || 'unknown'}`;
+  // "Cannot be judged yet" is not "the server cheated": an unrevealed seed or a
+  // hand containing player decisions is reported neutrally, and only a real
+  // contradiction gets the warning styling.
+  const neutral = v.scope === 'not_replayable' || ['seed_not_revealed', 'engine_round_based'].includes(v.reason);
+  const tone = v.ok ? 'ok' : (neutral ? 'pending' : 'bad');
   return html`
     <div class="stack">
-      <div class="notice ${v.ok ? 'notice--info' : 'notice--warn'}" role="status">
-        ${icon(v.ok ? 'check' : 'warn', 18)}
-        <div><strong>${t(v.ok ? 'fairness.valid' : 'fairness.invalid')}</strong>
+      <div class="notice ${tone === 'bad' ? 'notice--warn' : 'notice--info'}" role="status">
+        ${icon(tone === 'ok' ? 'check' : tone === 'pending' ? 'info' : 'warn', 18)}
+        <div><strong>${t(`fairness.${tone}`)}</strong>
           <div class="section__sub">${t(reason, v)}</div></div>
       </div>
       <dl class="kv">
