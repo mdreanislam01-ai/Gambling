@@ -38,8 +38,10 @@ bets, so every screen has something real to show on the first load.
 ## Check it
 
 ```bash
-npm test                      # 118 assertions across auth, games, sports, fairness,
-                              # engines, security config, legal documents
+npm test                      # 118 tests in 5 files: registration, login, lockout and
+                              # sessions; betting, the wallet ledger, limits and fairness;
+                              # 53 engine maths contracts; security and configuration;
+                              # the bilingual policy documents
 npm run check:rtp             # measures 20 000 rounds per game against the advertised
                               # return; fails above 103% or >6pp off the label
 npm run check:locale          # 1 938 keys per language: same key set, same
@@ -127,7 +129,7 @@ public/
   js/game/             session loop, per-engine views, table widgets
   js/locales/en|bn/    the catalogues, seven group files each
 tools/                 check-rtp, check-locales, check-web, make-icons
-tests/                 6 node:test files, isolated temp database per file
+tests/                 5 node:test files, isolated temp database per file
 docs/                  API.md, db-schema.md, ARCHITECTURE.md
 ```
 
