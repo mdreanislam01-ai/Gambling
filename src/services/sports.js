@@ -240,7 +240,7 @@ export function placeSportsBet({ user, legs, stake, slipType = 'single' }) {
     const out = [];
     if (slipType === 'multi') {
       debit({ userId: user.id, amount: s, noteKey: 'wallet.note.stake' });
-      recordDay({ wagered: s, paid: 0, count: 0 });
+      recordDay({ wagered: s, paid: 0 });
       const bet = openBetRow({
         userId: user.id, kind: 'sports', gameKey: null, stake: s, fixtureId: resolved[0].fixture_id,
         selection: { type: 'multi', legs: resolved.map((r) => ({ selectionId: r.id, marketKey: r.market_key, label: r.label, value: r.value, oddsBps: r.odds_bps, fixtureId: r.fixture_id })) },
@@ -249,7 +249,9 @@ export function placeSportsBet({ user, legs, stake, slipType = 'single' }) {
     } else {
       for (const r of resolved) {
         debit({ userId: user.id, amount: s, noteKey: 'wallet.note.stake' });
-        recordDay({ wagered: s, paid: 0, count: 0 });
+        // One entry per slip leg, because a multi-leg single slip really is that
+        // many bets — the daily counter has to match the number of bet rows opened.
+        recordDay({ wagered: s, paid: 0 });
         const bet = openBetRow({
           userId: user.id, kind: 'sports', gameKey: null, stake: s, fixtureId: r.fixture_id,
           selection: { type: 'single', legs: [{ selectionId: r.id, marketKey: r.market_key, label: r.label, value: r.value, oddsBps: r.odds_bps, fixtureId: r.fixture_id }] },
@@ -261,7 +263,7 @@ export function placeSportsBet({ user, legs, stake, slipType = 'single' }) {
     notifyUser(user.id, {
       titleKey: 'sports.bet_placed', bodyKey: 'sports.bet_placed_body',
       params: { count: out.length, stake: totalStake, odds: Math.round(totalOdds * 1000) / 1000 },
-      level: 'info', icon: 'ticket', link: '/account/bets',
+      level: 'info', icon: 'ticket', link: '/account/history',
     });
     broadcast('sports:bet', { userId: user.id, count: out.length });
     return { bets: out, totalStake, totalOdds: Math.round(totalOdds * 10000) / 10000, potentialReturn: Math.floor(slipType === 'multi' ? s * totalOdds : s * resolved[0].odds_bps / 10000) };
@@ -295,9 +297,9 @@ export function settleFixture(fixtureId, { source = 'admin' } = {}) {
       settleBetTx({ betId: bet.id, status, payout, outcome: { legs, settledBy: source, fixtureStatus: fixture.status, score: { home: fixture.home_score, away: fixture.away_score } } });
       for (const l of legs) run(`UPDATE sports_selections SET status = :s WHERE id = :id`, { s: l.result, id: l.selectionId });
       if (payout > bet.stake) {
-        notifyUser(bet.user_id, { titleKey: 'sports.bet_won', bodyKey: 'sports.bet_won_body', params: { amount: payout, fixture: fixtureId }, level: 'success', icon: 'trophy', link: '/account/bets' });
+        notifyUser(bet.user_id, { titleKey: 'sports.bet_won', bodyKey: 'sports.bet_won_body', params: { amount: payout, fixture: fixtureId }, level: 'success', icon: 'trophy', link: '/account/history' });
       } else if (status === 'lost') {
-        notifyUser(bet.user_id, { titleKey: 'sports.bet_lost', bodyKey: 'sports.bet_lost_body', params: { fixture: fixtureId }, level: 'info', icon: 'ticket', link: '/account/bets' });
+        notifyUser(bet.user_id, { titleKey: 'sports.bet_lost', bodyKey: 'sports.bet_lost_body', params: { fixture: fixtureId }, level: 'info', icon: 'ticket', link: '/account/history' });
       }
       settledCount += 1;
     }

@@ -241,7 +241,7 @@ export class LiveEngine {
         selection, fair: { serverSeedHash: st.round.hash, nonce: st.round.nonce, clientSeed: tableKey, seedId: null },
         view: { tableKey, roundId: st.round.id, phase: 'betting' },
       });
-      recordDay({ wagered: stake, paid: 0, count: 0 });
+      recordDay({ wagered: stake, paid: 0 });
       run(`UPDATE bets SET round_id = :r WHERE id = :b`, { r: st.round.id, b: row.id });
       st.participants.set(row.public_id, {
         userId: user.id, betId: row.id, betPublicId: row.public_id, stake, selection,

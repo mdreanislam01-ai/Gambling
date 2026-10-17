@@ -263,7 +263,7 @@ export class CrashEngine {
         fair: { ...fair, serverSeed: null },
         view: { roundId: this.round.id, status: this.round.status },
       });
-      recordDay({ wagered: stake, paid: 0, count: 0 });
+      recordDay({ wagered: stake, paid: 0 });
       const entry = { userId: user.id, betId: row.id, betPublicId: row.public_id, stake, autoCashout, settled: false };
       if (this.round.status === 'betting') {
         this.attach(entry);

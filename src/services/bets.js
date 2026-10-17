@@ -162,7 +162,9 @@ export function placeCasinoBet({ user, gameKey, stake, selection, clientSeed }) 
       fair,
       state, view,
     });
-    recordDay({ wagered: s, paid: 0, count: 0 });
+    // count defaults to 1: a placed bet is one bet. Passing count: 0 here (as the
+    // settle path correctly does) left daily_stats.bets at zero forever.
+    recordDay({ wagered: s, paid: 0 });
     catalog.bumpPlays(gameKey);
     if (resolved) {
       const status = resolved.payout <= s && resolved.status !== 'lost' ? (resolved.payout === s ? 'void' : 'lost') : resolved.status;
