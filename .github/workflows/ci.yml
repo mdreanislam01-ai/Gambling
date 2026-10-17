@@ -44,7 +44,28 @@ jobs:
         run: npm run check
 
       - name: Test suite
-        run: npm test
+        # The raw log lives on a storage host that not every viewer can reach, and a
+        # red suite is useless if nobody can see which test moved. So the failing TAP
+        # lines are published into the run's own summary as well.
+        run: |
+          set +e
+          npm test > /tmp/tap.log 2>&1
+          code=$?
+          set -e
+          sed -n '1,400p' /tmp/tap.log
+          if [ "$code" -ne 0 ]; then
+            {
+              echo '### `npm test` failed'
+              echo
+              echo "runtime: $(node --version) · date: $(date -u +%Y-%m-%dT%H:%M:%SZ) · cpus: $(nproc)"
+              echo
+              echo '```'
+              grep -nE 'not ok|expected|actual|failureType|error:|# (pass|fail|cancelled)' /tmp/tap.log | head -80 || tail -80 /tmp/tap.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$code"
+
 
       - name: Paytables and odds must match what the engines pay
         run: npm run check:rtp
