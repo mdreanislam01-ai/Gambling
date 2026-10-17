@@ -250,14 +250,19 @@ export async function dice(s) {
     const chance = m === 'under' ? t : m === 'over' ? 99 - t : 1;
     return chance > 0 ? (1 - edge) / chance : 0;
   };
+  // paint_() rebuilds the stage, so anything the result writes there has to live in
+  // the closure or the next repaint wipes it — the roll used to vanish from the
+  // readout the moment it appeared.
+  let lastRoll = null;
   const paint_ = () => {
     const mult = multFor(mode, target);
+    const markerAt = Math.min(98, Math.max(2, lastRoll ?? target));
     paint(s.stage, html`
       <div class="stack" style="width:min(520px,100%)">
         <div class="row row--wrap" style="justify-content:center">
           ${['under', 'over', 'equal'].map((m) => html`<button class="btn-tab" type="button" data-mode="${m}" aria-selected="${String(m === mode)}">${t(`dice.${m}`)}</button>`)}
         </div>
-        <div class="dice-track"><span class="dice-marker" data-role="marker" style="left:${target}%">${target}</span></div>
+        <div class="dice-track"><span class="dice-marker" data-role="marker" style="left:${markerAt}%">${lastRoll ?? target}</span></div>
         <input class="dice-slider" type="range" min="2" max="98" step="1" value="${target}" data-role="target"
           aria-label="${t('dice.target')}" ${mode === 'equal' ? 'disabled' : ''} />
         <div class="dice-scale"><span>2</span><span>50</span><span>98</span></div>
@@ -265,7 +270,7 @@ export async function dice(s) {
           <dt>${t('dice.multiplier')}</dt><dd>${fmtMultiplier(mult)}</dd>
           <dt>${t('dice.win_chance')}</dt><dd>${fmtNum((mode === 'under' ? target : mode === 'over' ? 99 - target : 1), { max: 0 })}%</dd>
           <dt>${t('dice.payout')}</dt><dd>${fmtCredits(Math.floor(s.stake * mult))}</dd>
-          <dt>${t('dice.result')}</dt><dd class="mono" data-role="roll">—</dd>
+          <dt>${t('dice.result')}</dt><dd class="mono" data-role="roll">${lastRoll ?? '—'}</dd>
         </dl>
       </div>`);
     s.stage.querySelector('[data-role=target]')?.addEventListener('input', (ev) => { target = Number(ev.target.value); paint_(); });
@@ -276,12 +281,7 @@ export async function dice(s) {
   wirePlace(s, s.below.querySelector('[data-role=place]'), async () => {
     const out = await s.place({ mode, target });
     const roll = out?.bet?.outcome?.roll;
-    const marker = s.stage.querySelector('[data-role=marker]');
-    if (roll !== undefined) {
-      marker.style.left = `${Math.min(98, Math.max(2, roll))}%`;
-      marker.textContent = roll;
-      s.stage.querySelector('[data-role=roll]').textContent = String(roll);
-    }
+    if (roll !== undefined) lastRoll = roll;
     if (out?.bet) showResult(s, out.bet);
     paint_();
   });
@@ -899,4 +899,8 @@ export async function generic(s) {
 }
 const iconFor = (game) => ({ slots: '🎰', roulette: '🎡', dice: '🎲', mines: '💣', wheel: '🎯', plinko: '🔻', bingo: '🅱️', crash: '🚀', blackjack: '🃏', baccarat: '♠️', video_poker: '🂡', three_patti: '🎴' })[game.engine] || '🎮';
 
-export const VIEWS = { slots, roulette, dice, mines, wheel, plinko, bingo, blackjack, video_poker, baccarat: sideBetGame('baccarat'), three_patti: sideBetGame('three_patti'), crash, generic };
+// The registry keys are the engine names the server sends, so video poker's
+// handler is `videoPoker` in camelCase but `video_poker` on the wire: shorthand
+// here referenced an identifier that does not exist and the whole module failed to
+// evaluate, which blanked every game page.
+export const VIEWS = { slots, roulette, dice, mines, wheel, plinko, bingo, blackjack, video_poker: videoPoker, baccarat: sideBetGame('baccarat'), three_patti: sideBetGame('three_patti'), crash, generic };

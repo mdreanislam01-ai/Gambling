@@ -171,7 +171,8 @@ defines, plus placeholder drift between the two languages.
    `src/api/game.js` — never as a client literal.
 4. Add the view in `public/js/game/views.js`, the locale keys in **both** catalogues,
    and a route entry if it needs one.
-5. Run `npm test`, `npm run check:rtp`, `npm run check:locale`, `npm run check:web`.
+5. Run `npm test`, `npm run check:rtp`, `npm run check:locale`, `npm run check:web`
+   and `npm run check:dom` — the last one is what proves the new view actually paints.
    An engine whose measured return disagrees with its label does not ship.
 
 ## What is not here, on purpose

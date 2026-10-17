@@ -19,10 +19,12 @@
     "icons": "node tools/make-icons.mjs",
     "check:locale": "node tools/check-locales.mjs",
     "check:rtp": "node tools/check-rtp.mjs",
-    "check:web": "node tools/check-web.mjs"
+    "check:web": "node tools/check-web.mjs",
+    "check:dom": "node tools/smoke-dom.mjs"
   },
-  "dependencies": {},
-  "devDependencies": {},
+  "devDependencies": {
+    "jsdom": "^30.1.3"
+  },
   "keywords": [
     "casino-demo",
     "responsible-gaming",

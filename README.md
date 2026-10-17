@@ -20,7 +20,10 @@ SQLite-backed API, migrations, automated tests and deployment docs.
 
 No dependencies. Node.js 22.5+ is the whole requirement: the HTTP server, router,
 SQLite driver (`node:sqlite`), password hashing and the frontend are all written in
-this repository, in plain ES modules.
+this repository, in plain ES modules. `npm install` is not part of running the app —
+the only devDependency in the tree is jsdom, which one check below uses to render the
+frontend in a DOM. Nothing else needs it, and `npm start` works in a clean checkout
+without `node_modules`.
 
 ## Run it
 
@@ -48,10 +51,18 @@ npm run check:locale          # 1 938 keys per language: same key set, same
                               # placeholders, and all 716 t('…') calls resolve
 npm run check:web             # resolves every import, asset, manifest icon and
                               # internal link against the router
+npm run check:dom             # renders the real SPA in jsdom: 65 page renders across
+                              # 28 routes in Bangla and English, signed out and in,
+                              # plus one bet placed by clicking the button — it fails
+                              # on a blank page, a dead link, an untranslated key or a
+                              # leaked value. Skips (does not fail) if jsdom is absent
 ```
 
-All four are wired into CI-friendly exit codes and are the reason a claim of
-"tested" here means something.
+All five are wired into CI-friendly exit codes and are the reason a claim of
+"tested" here means something. `check:dom` exists because a build-less frontend can
+fail quietly: a mistyped import or a wrong function name still serves HTTP 200 with a
+blank `<main>`, and it found exactly that (a dead router, an empty game registry, a
+result the next repaint erased) — none of which any server-side test could see.
 
 ## Sign in
 

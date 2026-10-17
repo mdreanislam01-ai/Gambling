@@ -194,10 +194,11 @@ call it live data — and never present simulated scores as real.
 ## 8. Go-live checklist
 
 ```bash
-npm test                # 118 assertions
+npm test                # 118 tests
 npm run check:rtp       # 20/20 games within 6pp of their advertised return
 npm run check:locale    # both catalogues complete, every reference resolves
 npm run check:web       # no broken imports, assets or links
+npm run check:dom       # the SPA renders in a DOM (needs `npm i`; skipped without it)
 ```
 
 - [ ] `.env` is `chmod 600`, not committed, and `SESSION_SECRET` + `IP_HASH_SALT` are random.

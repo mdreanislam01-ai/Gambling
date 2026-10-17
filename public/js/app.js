@@ -3,7 +3,7 @@
  * `{ render(container, ctx) }` and may return a cleanup function.
  */
 import { html, render, icon, qs, on } from './core/dom.js';
-import { t, locale, loadLocale, setLocale, preferredLocale, translateTree, isBengali } from './core/i18n.js';
+import { t, locale, loadLocale, setLocale, preferredLocale, translateTree, isBengali, onChange as onLocaleChange } from './core/i18n.js';
 import { state, patch, subscribe, emit, refreshSession, refreshContent, refreshNotifications, refreshFavorites, isStaff } from './core/state.js';
 import { api } from './core/api.js';
 import { connectLive, on as onLive, isLiveConnected } from './core/sse.js';
@@ -78,7 +78,9 @@ export function navigate(to, { replace = false, scroll = true } = {}) {
   if (url.origin !== location.origin) { location.href = to; return; }
   const method = replace ? 'replaceState' : 'pushState';
   history[method](null, '', url.pathname + url.search);
-  render({ scroll });
+  // renderRoute, not dom.js's render(el, content) — the two are easy to confuse and
+  // calling the wrong one left the URL updated while the page never changed.
+  renderRoute({ scroll });
   if (replace) return;
 }
 export const back = () => history.back();
@@ -133,7 +135,7 @@ function shell() {
     const act = ev.target.closest?.('[data-act="logout"]');
     if (act) { ev.preventDefault(); void doLogout(); }
   });
-  window.addEventListener('popstate', () => render());
+  window.addEventListener('popstate', () => renderRoute());
   window.addEventListener('app:unauthorized', () => {
     if (state.user) {
       patch({ user: null, wallet: null }, 'session');
@@ -378,7 +380,7 @@ export async function renderRoute({ scroll = true } = {}) {
         <h2>${t('err.page_failed')}</h2>
         <p class="section__sub">${err?.message || ''}</p>
         <button class="btn btn--gold" type="button" data-reload>${t('btn.retry')}</button></div></div></div>`);
-      main.querySelector('[data-reload]')?.addEventListener('click', () => render());
+      main.querySelector('[data-reload]')?.addEventListener('click', () => renderRoute());
     }
   } finally {
     renderInFlight -= 1;
@@ -397,12 +399,10 @@ function markActive() {
 
 async function switchLanguage(code) {
   if (code === locale()) return;
+  // setLocale notifies, and the listener below repaints everything — doing it here
+  // as well would render the route twice.
   await setLocale(code);
   toastOkLocale();
-  await renderRoute({ scroll: false });
-  renderTools();
-  renderFooter();
-  markActive();
 }
 const toastOkLocale = () => toast(t('lang.switched', { lang: t(isBengali() ? 'lang.bn' : 'lang.en') }), { type: 'success', duration: 2600 });
 
@@ -503,6 +503,17 @@ export async function boot() {
   connectLive();
   wireLive();
   wireRealityCheck();
+  // The header, footer and tab bar are painted once, so a language switch has to
+  // walk them: re-translate every [data-i18n] node and repaint the parts that are
+  // built by hand. Without this the chrome keeps the language the page booted in.
+  onLocaleChange(() => {
+    if (!shellBuilt) return;
+    translateTree(document);
+    renderTools();
+    renderFooter();
+    markActive();
+    void renderRoute({ scroll: false });
+  });
   await renderRoute();
   document.body.dataset.ready = '1';
 }

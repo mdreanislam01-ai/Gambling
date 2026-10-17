@@ -5,7 +5,32 @@
  */
 const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ESCAPES[c]);
-export const raw = (s) => ({ __raw: String(s ?? '') });
+// A raw fragment is a String object that also carries `__raw`. That is what lets
+// the same value be interpolated into a tagged template (the fragment is taken
+// as-is) and into a plain string template, where a bare `{ __raw }` object would
+// have printed "[object Object]" over the panel headers that build their
+// `innerHTML` by hand.
+const fragment = (markup) => {
+  const out = new String(markup);
+  out.__raw = markup;
+  return out;
+};
+export const raw = (s) => fragment(String(s ?? ''));
+
+const emit = (v) => {
+  if (v === null || v === undefined || v === false || v === true) return '';
+  // Nested lists happen for real — a grid built column by column returns an array
+  // of arrays — and stringifying one would print "[object Object]" across the
+  // board, so recursion is the only honest answer here.
+  if (Array.isArray(v)) {
+    let joined = '';
+    for (let i = 0; i < v.length; i += 1) joined += emit(v[i]);
+    return joined;
+  }
+  if (typeof v === 'object' && v.__raw !== undefined) return v.__raw;
+  if (typeof v === 'object') return escapeHtml(v.text ?? JSON.stringify(v));
+  return escapeHtml(v);
+};
 
 export function html(strings, ...values) {
   let out = '';
@@ -14,12 +39,7 @@ export function html(strings, ...values) {
   for (let i = 0; i < strings.length; i += 1) {
     out += strings[i];
     if (i >= values.length) continue;
-    const v = values[i];
-    if (v === null || v === undefined || v === false || v === true) continue;
-    if (Array.isArray(v)) out += v.map((x) => (html.isRaw(x) ? x.__raw : escapeHtml(x))).join('');
-    else if (v.__raw !== undefined) out += v.__raw;
-    else if (typeof v === 'object') out += escapeHtml(v.text ?? JSON.stringify(v));
-    else out += escapeHtml(v);
+    out += emit(values[i]);
   }
   return { __raw: out };
 }
@@ -62,7 +82,7 @@ export function mount(container, node) {
 
 export function icon(name, size = 20) {
   const paths = ICONS[name] || ICONS.dot;
-  return { __raw: `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths}</svg>` };
+  return fragment(`<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${paths}</svg>`);
 }
 
 export const ICONS = {
