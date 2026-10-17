@@ -18,7 +18,7 @@ export const limiters = {
   register: new RateLimiter(config.limits.register),
   bet: new RateLimiter(config.limits.bet),
   write: new RateLimiter(config.limits.write),
-  reset: new RateLimiter({ max: 5, windowS: 900 }),
+  reset: new RateLimiter(config.limits.reset),
 };
 
 const MUTATING = new Set(['POST', 'PATCH', 'PUT', 'DELETE']);
@@ -105,7 +105,7 @@ export async function handle(req, res) {
       if (!found) throw new HttpError(404, 'err.route_not_found', { path: url.pathname });
       ctx.params = found.params;
       const data = await found.route.handler(ctx);
-      if (res.writableEnded) return;
+      if (res.writableEnded || res.headersSent) return;
       sendJson(res, { ok: true, data: data === undefined ? null : data }, 200, ctx);
       return;
     }

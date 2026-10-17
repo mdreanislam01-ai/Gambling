@@ -583,3 +583,89 @@ table.data tr:last-child td { border-bottom: 0; }
 .hide-sm { display: revert; }
 .only-sm { display: none !important; }
 @media (max-width: 760px) { .hide-sm { display: none !important; } .only-sm { display: inline-flex !important; } }
+
+/* ---------------------------------------------------------------------------
+   Additions: admin console, tickets thread and utility variants.
+   Kept after the core system so overrides stay predictable.
+   --------------------------------------------------------------------------- */
+.chip--ok { background: rgba(34, 201, 141, .14); color: var(--green); border-color: rgba(34, 201, 141, .34); }
+.chip--warn { background: rgba(245, 158, 66, .14); color: var(--orange); border-color: rgba(245, 158, 66, .34); }
+.chip--block { display: block; width: 100%; justify-content: center; }
+
+.btn--warn { background: rgba(242, 85, 95, .12); color: #ffd9dc; border-color: rgba(242, 85, 95, .4); }
+.btn--warn:hover { background: rgba(242, 85, 95, .2); border-color: rgba(242, 85, 95, .6); }
+.btn--icon { padding: 6px 8px; line-height: 1; }
+
+.art--blue { background: radial-gradient(120% 120% at 20% 0%, rgba(75, 139, 245, .55), rgba(8, 13, 28, .95)); }
+.art--green { background: radial-gradient(120% 120% at 20% 0%, rgba(34, 201, 141, .5), rgba(8, 13, 28, .95)); }
+.art--sunset { background: linear-gradient(135deg, rgba(245, 158, 66, .55), rgba(139, 111, 240, .45) 60%, rgba(8, 13, 28, .95)); }
+.art--rose { background: linear-gradient(135deg, rgba(242, 85, 95, .5), rgba(139, 111, 240, .4), rgba(8, 13, 28, .95)); }
+.art--grid { background: linear-gradient(rgba(227, 179, 65, .12) 1px, transparent 1px) 0 0 / 100% 18px, radial-gradient(120% 120% at 30% 0%, rgba(22, 34, 63, .9), rgba(5, 7, 15, .98)); }
+
+.badge--cashout { background: rgba(62, 203, 224, .16); color: var(--cyan); }
+.badge--refunded { background: rgba(138, 155, 196, .18); color: var(--text-dim); }
+.badge--active { background: rgba(34, 201, 141, .16); color: var(--green); }
+.badge--live { background: rgba(242, 85, 95, .18); color: #ffd9dc; }
+
+.up { color: var(--green); }
+.down { color: var(--muted); }
+.center { text-align: center; }
+
+.stack--tight { gap: 8px; }
+.row--pad-y { padding: 6px 0; border-top: 1px solid var(--line-soft); }
+
+.list-dim { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.list-dim li { padding: 8px 10px; border: 1px solid var(--line-soft); border-radius: 10px; background: rgba(18, 29, 56, .5); }
+
+.meta-cell { display: block; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.loading-inline { display: flex; align-items: center; gap: 10px; padding: 22px 4px; color: var(--muted); }
+
+.pager { display: flex; align-items: center; gap: 10px; padding-top: 4px; }
+
+/* admin console shell */
+.admin-shell { gap: 18px; }
+.admin-shell .admin-tab, [data-admin-tab] { white-space: nowrap; }
+.admin-card {
+  display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+  padding: 12px; border: 1px solid var(--line-soft); border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(22, 34, 63, .7), rgba(15, 24, 48, .7));
+}
+.admin-card + .admin-card { margin-top: 10px; }
+.admin-card__media {
+  flex: 1 1 240px; min-width: 220px; min-height: 96px; padding: 14px;
+  display: grid; align-content: center; gap: 4px; border-radius: 12px;
+  background: radial-gradient(120% 120% at 15% 0%, rgba(227, 179, 65, .28), rgba(8, 13, 28, .92));
+  border: 1px solid var(--line-soft);
+}
+.admin-card__media strong { font-size: 1.06rem; }
+.admin-card__media p { margin: 0; color: var(--text-dim); font-size: .88rem; }
+.media--gold { background: radial-gradient(120% 120% at 15% 0%, rgba(227, 179, 65, .34), rgba(8, 13, 28, .92)); }
+.media--blue { background: radial-gradient(120% 120% at 15% 0%, rgba(75, 139, 245, .34), rgba(8, 13, 28, .92)); }
+.media--violet { background: radial-gradient(120% 120% at 15% 0%, rgba(139, 111, 240, .34), rgba(8, 13, 28, .92)); }
+.media--green { background: radial-gradient(120% 120% at 15% 0%, rgba(34, 201, 141, .32), rgba(8, 13, 28, .92)); }
+.media--sunset { background: linear-gradient(135deg, rgba(245, 158, 66, .38), rgba(139, 111, 240, .32), rgba(8, 13, 28, .94)); }
+.media--rose { background: linear-gradient(135deg, rgba(242, 85, 95, .34), rgba(139, 111, 240, .28), rgba(8, 13, 28, .94)); }
+.media--grid { background: linear-gradient(rgba(227, 179, 65, .12) 1px, transparent 1px) 0 0 / 100% 20px, radial-gradient(120% 120% at 30% 0%, rgba(22, 34, 63, .8), rgba(5, 7, 15, .96)); }
+.row-actions { display: flex; gap: 4px; justify-content: flex-end; }
+
+/* announcements + ticket thread */
+.announce { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; border-bottom: 1px solid var(--line-soft); }
+.announce:last-child { border-bottom: 0; }
+.announce__icon { flex: none; width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--panel-2); color: var(--gold-light); }
+.announce__icon--bonus { color: var(--green); background: rgba(34, 201, 141, .12); }
+.announce__icon--maintenance, .announce__icon--warn { color: var(--orange); background: rgba(245, 158, 66, .12); }
+.announce__icon--tournament { color: var(--violet); background: rgba(139, 111, 240, .14); }
+.thread { display: grid; gap: 10px; max-height: 46vh; overflow: auto; padding-right: 4px; }
+.msg { padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line-soft); }
+.msg--staff { background: rgba(227, 179, 65, .08); border-color: rgba(227, 179, 65, .3); }
+.msg__head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.msg p { margin: 0; white-space: pre-wrap; color: var(--text-dim); font-size: .92rem; }
+
+.notice--danger { border-color: rgba(242, 85, 95, .45); background: rgba(242, 85, 95, .1); color: #ffd9dc; }
+
+@media (max-width: 860px) {
+  .admin-card { flex-direction: column; align-items: stretch; }
+  .admin-card .row-actions { justify-content: flex-start; }
+  .meta-cell { max-width: 100%; }
+}

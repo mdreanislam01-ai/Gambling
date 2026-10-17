@@ -8,7 +8,7 @@ export function notifyUser(userId, { titleKey, bodyKey = null, params = null, le
     { u: userId, level, icon, titleKey, bodyKey, params: params ? JSON.stringify(params) : null, link }
   );
   const id = Number(r.lastInsertRowid);
-  broadcast('notification', { id, userId, titleKey, bodyKey, params, level, icon, link });
+  broadcast('notification', { id, userId, titleKey, bodyKey, params, level, icon, link }, { userId });
   return id;
 }
 

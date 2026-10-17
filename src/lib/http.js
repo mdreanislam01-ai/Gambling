@@ -168,7 +168,7 @@ export async function readBody(ctx) {
 }
 
 export function sendJson(res, data, status = 200, ctx) {
-  if (res.writableEnded) return;
+  if (res.writableEnded || res.headersSent) return;
   const body = JSON.stringify(data ?? null);
   res.writeHead(status, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -184,7 +184,7 @@ export function sendError(res, err, { expose = false } = {}) {
   const code = status === 500 && !expose ? 'err.internal' : err?.code || 'err.internal';
   const params = status === 500 && !expose ? {} : err?.params || {};
   const body = JSON.stringify({ ok: false, error: { code, params, ...(config.isTest || expose ? { detail: String(err?.message || '') } : {}) } });
-  if (res.writableEnded) return;
+  if (res.writableEnded || res.headersSent) return;
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body), 'Cache-Control': 'no-store' });
   res.end(body);
 }
@@ -234,7 +234,7 @@ export function serveStatic(dir, pathname, req, res, inject = {}) {
 /** Server-sent events hub used by the live crash/live-casino feed. */
 export class SseHub {
   constructor(name) { this.name = name; this.clients = new Set(); }
-  add(res) {
+  add(res, meta = {}) {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
@@ -242,14 +242,22 @@ export class SseHub {
       'X-Accel-Buffering': 'no',
     });
     res.write(`retry: 3000\n\n`);
-    const client = { res, id: crypto.randomBytes(6).toString('hex') };
+    const client = { res, id: crypto.randomBytes(6).toString('hex'), userId: meta.userId ?? null };
     this.clients.add(client);
     return client;
   }
   remove(client) { this.clients.delete(client); }
-  send(event, data) {
+  /**
+   * `target.userId` limits delivery to that user's own connections. Private
+   * events (wallet, notifications, a player's bets) must never reach strangers.
+   */
+  send(event, data, target = {}) {
+    const only = target.userId ?? null;
     const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-    for (const c of this.clients) { try { c.res.write(payload); } catch { this.clients.delete(c); } }
+    for (const c of this.clients) {
+      if (only !== null && c.userId !== only) continue;
+      try { c.res.write(payload); } catch { this.clients.delete(c); }
+    }
   }
   get size() { return this.clients.size; }
   closeAll() { for (const c of this.clients) { try { c.res.end(); } catch {} } this.clients.clear(); }

@@ -4,7 +4,7 @@ import { get, all, run } from '../db/index.js';
 import { clamp, toCents } from '../lib/util.js';
 import * as catalog from '../services/catalog.js';
 import { listUserBets, placeCasinoBet, actOnBet, getActiveHand, abandonHand, stats as betStats } from '../services/bets.js';
-import { walletSummary, transactions, dailyResetBonus, netLossToday, transactionCount, dailyBonusStatus } from '../services/wallet.js';
+import { walletSummary, transactions, dailyResetBonus, dailyBonusEnabled, netLossToday, transactionCount, dailyBonusStatus } from '../services/wallet.js';
 import { seedView, historySeeds, setClientSeed, rotateSeed, verifyBet } from '../services/fairness.js';
 import { crashEngine, crashPublicState, roundHistory } from '../services/crash.js';
 import { liveEngine } from '../services/live.js';
@@ -20,13 +20,14 @@ export function registerGameRoutes(route) {
     const q = ctx.query;
     const rows = catalog.listGames({
       category: q.category || null,
-      search: q.search || null,
+      search: q.q || q.search || null,
       sort: q.sort || 'curated',
       userId: ctx.user?.id ?? null,
       limit: clamp(Number(q.limit) || 60, 1, 120),
       offset: Math.max(0, Number(q.offset) || 0),
     });
-    return { rows, total: catalog.countGames(), categories: catalog.categoriesWithCounts() };
+    const filters = { category: q.category || null, search: q.q || q.search || null, userId: ctx.user?.id ?? null };
+    return { rows, total: catalog.countGames(filters), categories: catalog.categoriesWithCounts() };
   });
 
   route('GET', '/api/games/categories', () => ({ rows: catalog.categoriesWithCounts() }));
@@ -106,7 +107,7 @@ export function registerGameRoutes(route) {
 
   route('POST', '/api/wallet/claim-daily', { auth: true, limit: 'write' }, (ctx) => {
     const amount = dailyResetBonus(ctx.user.id);
-    if (!amount) throw new HttpError(409, 'wallet.daily_already');
+    if (!amount) throw new HttpError(409, dailyBonusEnabled() ? 'wallet.daily_already' : 'wallet.daily_disabled');
     return { amount, wallet: walletSummary(ctx.user.id) };
   });
 

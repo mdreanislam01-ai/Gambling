@@ -83,7 +83,12 @@ export function openBetRow({ userId, kind, gameKey, stake, selection, roundId = 
 }
 
 /** Credit winnings + close the bet. Must run inside an open transaction. */
-export function settleBetTx({ betId, status, payout, outcome = null, view = null, multiplier = null, state = null }) {
+/**
+ * Settle a bet exactly once: it is the only writer of the payout/refund ledger
+ * row, so callers must never credit the wallet themselves.
+ * @param payoutKind  'payout' (default) or 'refund' for a voided round
+ */
+export function settleBetTx({ betId, status, payout, outcome = null, view = null, multiplier = null, state = null, payoutKind = 'payout', payoutNoteKey = 'wallet.note.payout' }) {
   const bet = get(`SELECT * FROM bets WHERE id = :id`, { id: betId });
   if (!bet) throw new HttpError(404, 'err.bet_not_found');
   if (bet.status !== 'pending') return bet;
@@ -99,7 +104,7 @@ export function settleBetTx({ betId, status, payout, outcome = null, view = null
       state: state === undefined ? bet.state : state === null ? null : JSON.stringify(state),
     }
   );
-  if (pay > 0) wallet.credit({ userId: bet.user_id, amount: pay, kind: 'payout', reference: bet.public_id, noteKey: 'wallet.note.payout' });
+  if (pay > 0) wallet.credit({ userId: bet.user_id, amount: pay, kind: payoutKind, reference: bet.public_id, noteKey: payoutNoteKey });
   recordDay({ wagered: 0, paid: pay, won: status === 'won' || status === 'cashout' ? 1 : 0, count: 0 });
   return get(`SELECT b.*, g.name AS game_name FROM bets b LEFT JOIN games g ON g.key = b.game_key WHERE b.id = :id`, { id: betId });
 }
@@ -167,12 +172,12 @@ export function placeCasinoBet({ user, gameKey, stake, selection, clientSeed }) 
         multiplier: resolved.multiplier ?? (s ? resolved.payout / s : 0),
       });
       maybeNotifyBigWin(user, bet);
-      broadcast('bet:settled', betView(bet));
+      broadcast('bet:settled', betView(bet), { userId: bet.user_id });
       return { bet: publicBet(bet), view: json(bet.view), outcome: json(bet.outcome), pending: false, fair };
     }
     run(`UPDATE bets SET state = :st, view = :v WHERE id = :id`, { id: row.id, st: JSON.stringify(state), v: JSON.stringify(view) });
-    broadcast('bet:opened', { id: row.public_id, gameKey, stake: s });
-    return { bet: publicBet(row), view, actions: view?.actions ?? [], pending: true, fair };
+    broadcast('bet:opened', { id: row.public_id, gameKey, stake: s, userId: user.id }, { userId: user.id });
+    return { bet: publicBet(row), view, actions: out.actions ?? view?.actions ?? [], pending: true, fair };
   });
 }
 
@@ -194,14 +199,14 @@ export async function actOnBet({ user, betId, action, selection }) {
     if (out.status === 'pending') {
       run(`UPDATE bets SET state = :s, view = :v WHERE id = :id`, { id: row.id, s: JSON.stringify(out.state), v: JSON.stringify(out.view ?? null) });
       const fresh = get(`SELECT b.*, g.name AS game_name FROM bets b LEFT JOIN games g ON g.key = b.game_key WHERE b.id = :id`, { id: row.id });
-      return { bet: publicBet(fresh), view: out.view, actions: out.actions, pending: true };
+      return { bet: publicBet(fresh), view: out.view, actions: out.actions ?? out.view?.actions ?? [], pending: true };
     }
     const bet = settleBetTx({
       betId: row.id, status: out.status, payout: out.payout, outcome: out.outcome ?? null, view: out.view ?? null,
       multiplier: out.multiplier ?? (row.stake ? out.payout / row.stake : 0), state: out.state ?? null,
     });
     maybeNotifyBigWin(user, bet);
-    broadcast('bet:settled', betView(bet));
+    broadcast('bet:settled', betView(bet), { userId: bet.user_id });
     return { bet: publicBet(bet), view: out.view ?? null, pending: false };
   });
 }
@@ -244,9 +249,12 @@ export function abandonHand(userId, betId) {
       const out = engine.timeout(json(row.state, {}));
       if (out && out.payout !== undefined && out.status !== 'lost') return settleBetTx({ betId: row.id, status: out.status, payout: out.payout, outcome: out.outcome, state: out.state });
     }
-    // No forced result: refund the stake and void the round.
-    wallet.credit({ userId, amount: row.stake, kind: 'refund', reference: row.public_id, noteKey: 'wallet.note.refund' });
-    return settleBetTx({ betId: row.id, status: 'void', payout: row.stake, outcome: { abandoned: true }, state: null });
+    // No forced result: void the round and return the stake. settleBetTx performs
+    // the credit, so the stake is never refunded twice.
+    return settleBetTx({
+      betId: row.id, status: 'void', payout: row.stake, outcome: { abandoned: true }, state: null,
+      payoutKind: 'refund', payoutNoteKey: 'wallet.note.refund',
+    });
   });
 }
 

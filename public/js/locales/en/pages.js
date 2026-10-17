@@ -68,6 +68,8 @@ export default {
     admin_update_body: 'An administrator changed: {fields}', announcement: 'Announcement',
     big_win: 'Big win: {amount}', big_win_body: '{game} paid out {amount} credits on bet {ref}.',
     bonus_credited: 'Demo credits added', bonus_credited_body: '{amount} credits were added to your demo wallet.',
+    account_locked: 'Sign-in temporarily locked',
+    account_locked_body: 'Too many failed password attempts. Try again in {minutes} minute(s) or reset your password.',
     credit_added: 'Demo credits added', credit_removed: 'Demo credits removed',
     credit_change_body: 'Your balance changed by {amount} credits.',
     crash_recovered: 'Crash round recovered', crash_recovered_body: 'Your queued bet was placed in the next round.',

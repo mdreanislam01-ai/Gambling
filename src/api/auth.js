@@ -7,6 +7,13 @@ import { walletSummary, transactions, dailyResetBonus } from '../services/wallet
 import { stats } from '../services/bets.js';
 import { toCents, emailOk } from '../lib/util.js';
 
+/** Locked / suspended / closed accounts are authenticated-but-forbidden states. */
+const LOGIN_STATUS = {
+  'auth.locked': 423,
+  'auth.account_suspended': 403,
+  'auth.account_closed': 403,
+};
+
 export function setCookie(ctx, name, value, opts = {}) {
   const cur = ctx.res.getHeader('Set-Cookie');
   const arr = cur ? (Array.isArray(cur) ? cur : [cur]) : [];
@@ -53,7 +60,7 @@ export function registerAuthRoutes(route) {
   route('POST', '/api/auth/login', { limit: 'login', csrf: false }, (ctx) => {
     const b = ctx.body || {};
     const out = users.login({ identifier: b.identifier || b.email, password: b.password, ip: ctx.ip, userAgent: ctx.req.headers['user-agent'] });
-    if (out.error) throw new HttpError(401, out.error, out.params || {});
+    if (out.error) throw new HttpError(LOGIN_STATUS[out.error] || 401, out.error, out.params || {});
     setCookie(ctx, config.cookie.name, out.sid, { maxAge: config.sessionTtlDays * 86400 });
     dailyResetBonus(out.user.id);
     return { user: out.user, csrf: out.csrf, wallet: walletSummary(out.user.id) };
@@ -112,12 +119,12 @@ export function registerAuthRoutes(route) {
 
   route('POST', '/api/account/sessions/revoke', { auth: true }, (ctx) => {
     if (ctx.body?.all) { users.logoutEverywhere(ctx.user.id, ctx.session.sessionId); return { revoked: 'others' }; }
-    return { ok: true, code: 'account.sessions_revoked' };
+    return { ok: true, code: 'settings.revoked' };
   });
 
   route('POST', '/api/account/close', { auth: true }, (ctx) => {
     users.closeAccount(ctx.user.id, ctx.body?.password);
     setCookie(ctx, config.cookie.name, '', { maxAge: 0 });
-    return { ok: true, code: 'account.closed' };
+    return { ok: true, code: 'settings.closed' };
   });
 }

@@ -57,11 +57,15 @@ const cfg = {
     name: str('COOKIE_NAME', 'arenaplay_session'),
     locale: 'arenaplay_locale',
     secure: bool('COOKIE_SECURE', isProd),
-    sameSite: 'lax',
+    sameSite: str('COOKIE_SAME_SITE', 'Lax'),
   },
   trustProxy: bool('TRUST_PROXY', false),
   maxBodyBytes: int('MAX_BODY_BYTES', 256 * 1024),
   sessionTtlDays: int('SESSION_TTL_DAYS', 14),
+  auth: {
+    failMax: Math.max(3, int('AUTH_FAIL_MAX', 8)),
+    lockoutMin: Math.max(1, int('AUTH_LOCKOUT_MINUTES', 15)),
+  },
   scryptLog2N: Math.min(20, Math.max(12, int('PASSWORD_SCRYP_COST_LOG2', 15))),
 
   demo: {
@@ -93,6 +97,7 @@ const cfg = {
     register: { max: int('RATE_REGISTER_MAX', 5), windowS: int('RATE_REGISTER_WINDOW_S', 3600) },
     bet: { max: int('RATE_BET_MAX', 120), windowS: int('RATE_BET_WINDOW_S', 60) },
     write: { max: int('RATE_WRITE_MAX', 60), windowS: int('RATE_WRITE_WINDOW_S', 60) },
+    reset: { max: int('RATE_RESET_MAX', 5), windowS: int('RATE_RESET_WINDOW_S', 900) },
   },
 
   sports: {

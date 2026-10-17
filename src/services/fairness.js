@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { sha256 } from '../lib/security.js';
 import { json } from '../lib/util.js';
 import { Rng } from '../games/rng.js';
+import { getGame } from './catalog.js';
 
 /**
  * Per-user provably-fair chain.
@@ -93,7 +94,11 @@ export async function verifyBet(betPublicId) {
   const { ENGINES } = await import('../games/index.js');
   const engine = ENGINES[bet.engine];
   if (!engine?.run) return { ok: false, reason: 'engine_round_based', gameKey: bet.game_key };
-  const game = get(`SELECT * FROM games WHERE key = :k`, { k: bet.game_key }) || { engine: bet.engine, config: '{}', house_edge_bps: 100 };
+  // Rebuild the game exactly as the play path saw it (shaped, camelCase fields).
+  // Using the raw DB row here made the house edge read as undefined, so the
+  // recomputed payout could differ by a cent and verification said "mismatch".
+  const game = getGame(bet.game_key, { includeDisabled: true })
+    || { engine: bet.engine, config: {}, minBet: 100, maxBet: 100000, rtpBps: 9650, houseEdgeBps: 350 };
   let recomputed;
   try {
     recomputed = engine.run({

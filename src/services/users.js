@@ -3,7 +3,7 @@ import { get, run, all, tx } from '../db/index.js';
 import { HttpError } from '../lib/http.js';
 import config from '../config.js';
 import { hashPassword, verifyPassword, passwordIssues, token, sha256, shortCode } from '../lib/security.js';
-import { emailOk, usernameOk, json, clamp, daysFromNow } from '../lib/util.js';
+import { emailOk, usernameOk, json } from '../lib/util.js';
 import * as wallet from './wallet.js';
 import { audit, sendMail } from './audit.js';
 import { notifyUser } from './notify.js';
@@ -89,24 +89,53 @@ export function createSession(userId, { ip, userAgent }) {
   return { sid, csrf, expiresAt: expires };
 }
 
+/**
+ * A throwaway hash verified whenever the account does not exist, so an unknown
+ * identifier costs the same CPU as a wrong password. Without it, response timing
+ * alone would tell an attacker which email addresses are registered.
+ */
+let dummyHashCache = null;
+const dummyHash = () => (dummyHashCache ||= hashPassword('Nobody!Uses2026#this'));
+
 export function login({ identifier, password, ip, userAgent }) {
   const row = findByEmailOrUsername(identifier);
-  const started = Date.now();
-  const fail = (code, params = {}) => {
-    if (row) {
-      const attempts = (row.failed_attempts || 0) + 1;
-      const lock = attempts >= 8 ? daysFromNow(0) : null;
-      run(`UPDATE users SET failed_attempts = :a, locked_until = CASE WHEN :lock = 1 THEN datetime('now','+15 minutes') ELSE locked_until END WHERE id = :id`,
-        { a: attempts, id: row.id, lock: attempts >= 8 ? 1 : 0 });
-      audit({ actorId: row.id, actorRole: 'user', action: 'auth.login_failed', entity: 'user', entityId: row.id, ip });
+  /**
+   * Count the failure and freeze the account after AUTH_FAIL_MAX consecutive bad
+   * passwords (AUTH_LOCKOUT_MINUTES). The lock flag must be 0/1 — a date string
+   * compared with `= 1` never matched, so the lockout silently did nothing.
+   */
+  const recordFailure = (userRow) => {
+    const attempts = (userRow.failed_attempts || 0) + 1;
+    const shouldLock = attempts >= config.auth.failMax;
+    run(
+      `UPDATE users SET failed_attempts = :a,
+         locked_until = CASE WHEN :lock = 1 THEN datetime('now','+' || :m || ' minutes') ELSE locked_until END
+       WHERE id = :id`,
+      { a: attempts, id: userRow.id, m: config.auth.lockoutMin, lock: shouldLock ? 1 : 0 }
+    );
+    audit({ actorId: userRow.id, actorRole: 'user', action: 'auth.login_failed', entity: 'user', entityId: userRow.id, ip, meta: { attempts } });
+    if (shouldLock) {
+      notifyUser(userRow.id, {
+        titleKey: 'notif.account_locked', bodyKey: 'notif.account_locked_body',
+        params: { minutes: config.auth.lockoutMin }, level: 'warn', icon: 'shield', link: '/auth/forgot',
+      });
+      audit({ actorId: userRow.id, actorRole: 'user', action: 'auth.lockout_applied', entity: 'user', entityId: userRow.id, ip, meta: { attempts } });
     }
-    // Constant-ish work so timing does not reveal whether the account exists.
-    const wait = Math.max(0, 120 - (Date.now() - started));
-    return { code, params, wait };
   };
-  if (!row) { fail('auth.invalid_credentials'); return { error: 'auth.invalid_credentials' }; }
-  if (row.locked_until && new Date(String(row.locked_until).replace(' ', 'T') + 'Z') > new Date()) return { error: 'auth.locked', params: { until: row.locked_until } };
-  if (!verifyPassword(password, row.password_hash)) return { error: 'auth.invalid_credentials' };
+
+  if (!row) {
+    verifyPassword(String(password ?? ''), dummyHash());
+    return { error: 'auth.invalid_credentials' };
+  }
+  if (row.locked_until) {
+    const until = new Date(String(row.locked_until).replace(' ', 'T') + 'Z');
+    if (until > new Date()) return { error: 'auth.locked', params: { until: row.locked_until } };
+    run(`UPDATE users SET locked_until = NULL, failed_attempts = 0 WHERE id = :id`, { id: row.id });
+  }
+  if (!verifyPassword(password, row.password_hash)) {
+    recordFailure(row);
+    return { error: 'auth.invalid_credentials' };
+  }
   if (row.status === 'closed') return { error: 'auth.account_closed' };
   if (row.status === 'suspended') return { error: 'auth.account_suspended' };
   const s = createSession(row.id, { ip, userAgent });
@@ -234,10 +263,30 @@ export function updateProfile(userId, patch) {
 export function setLimits(userId, patch) {
   const p = { id: userId };
   const fields = [];
-  const cents = (v) => (v === null || v === '' || v === undefined ? null : Math.round(clamp(Number(v), 10000, config.demo.maxBalanceCents)));
-  if (patch.dailyLossLimit !== undefined) { fields.push('daily_loss_limit = :dl'); p.dl = cents(patch.dailyLossLimit); }
-  if (patch.weeklyWagerLimit !== undefined) { fields.push('weekly_wager_limit = :wl'); p.wl = cents(patch.weeklyWagerLimit); }
-  if (patch.sessionLimitMin !== undefined) { fields.push('session_limit_min = :sm'); p.sm = patch.sessionLimitMin === null ? null : Math.round(clamp(Number(patch.sessionLimitMin), 5, 600)); }
+  /**
+   * 0 / null / '' clears a limit. Anything else must be a real number inside the
+   * allowed band: silently clamping would tell the player their limit was saved
+   * while the server stored a different one.
+   */
+  const cents = (field, v, min = 10000) => {
+    if (v === null || v === '' || v === undefined || Number(v) === 0) return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) throw new HttpError(422, 'val.number', { field });
+    if (n < min) throw new HttpError(422, 'rg.limit_below_min', { field, min, minCredits: min / 100 });
+    return Math.round(Math.min(n, config.demo.maxBalanceCents));
+  };
+  if (patch.dailyLossLimit !== undefined) { fields.push('daily_loss_limit = :dl'); p.dl = cents('dailyLossLimit', patch.dailyLossLimit); }
+  if (patch.weeklyWagerLimit !== undefined) { fields.push('weekly_wager_limit = :wl'); p.wl = cents('weeklyWagerLimit', patch.weeklyWagerLimit); }
+  if (patch.sessionLimitMin !== undefined) {
+    const raw = patch.sessionLimitMin;
+    if (raw === null || raw === '' || Number(raw) === 0) { fields.push('session_limit_min = :sm'); p.sm = null; }
+    else {
+      const n = Number(raw);
+      if (!Number.isFinite(n)) throw new HttpError(422, 'val.number', { field: 'sessionLimitMin' });
+      if (n < 5 || n > 600) throw new HttpError(422, 'val.range', { field: 'sessionLimitMin', min: 5, max: 600 });
+      fields.push('session_limit_min = :sm'); p.sm = Math.round(n);
+    }
+  }
   if (patch.realityCheck !== undefined) { fields.push('reality_check = :rc'); p.rc = patch.realityCheck ? 1 : 0; }
   if (!fields.length) return { ok: true };
   run(`UPDATE users SET ${fields.join(', ')}, updated_at = datetime('now') WHERE id = :id`, p);

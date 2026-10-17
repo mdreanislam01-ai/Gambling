@@ -4,6 +4,27 @@ import config from '../config.js';
 import { setting } from './settings.js';
 import { centsToText } from '../lib/util.js';
 
+/**
+ * Wallet changes are pushed to the browser over SSE so the header balance stays
+ * live. The emit is deferred to the end of the current turn of the event loop,
+ * i.e. after the surrounding transaction has committed or rolled back, so a
+ * client never sees a balance from a rolled-back write. Delivery is best-effort:
+ * every mutation also returns the authoritative balance in its HTTP response.
+ */
+const announced = new Set();
+export function announceWallet(userId) {
+  if (!userId || announced.has(userId)) return;
+  announced.add(userId);
+  setImmediate(async () => {
+    announced.delete(userId);
+    try {
+      const { broadcast } = await import('./events.js');
+      const w = walletSummary(userId);
+      broadcast('wallet:update', { userId, ...w }, { userId });
+    } catch { /* SSE is an optimisation, never a requirement */ }
+  });
+}
+
 export function ensureWallet(userId) {
   run(`INSERT INTO user_wallets(user_id) VALUES(:u) ON CONFLICT(user_id) DO NOTHING`, { u: userId });
   return get(`SELECT * FROM user_wallets WHERE user_id = :u`, { u: userId });
@@ -15,7 +36,17 @@ export function transactions(userId, { limit = 50, offset = 0, kind = null } = {
   const p = { u: userId, limit: Math.min(200, Math.max(1, limit)), offset: Math.max(0, offset) };
   let where = 'user_id = :u';
   if (kind) { where += ' AND kind = :kind'; p.kind = kind; }
-  return all(`SELECT id, kind, amount, balance_after, reference, note_key, note, created_at FROM transactions WHERE ${where} ORDER BY id DESC LIMIT :limit OFFSET :offset`, p);
+  return all(`SELECT id, kind, amount, balance_after, reference, note_key, note, created_at FROM transactions WHERE ${where} ORDER BY id DESC LIMIT :limit OFFSET :offset`, p)
+    .map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      amount: r.amount,
+      balanceAfter: r.balance_after,
+      reference: r.reference,
+      noteKey: r.note_key,
+      note: r.note,
+      createdAt: r.created_at,
+    }));
 }
 
 export function transactionCount(userId) {
@@ -42,6 +73,7 @@ export function debit({ userId, amount, reference, noteKey, note }) {
   const after = w.balance - amt;
   run(`UPDATE user_wallets SET balance = :b, lifetime_wagered = lifetime_wagered + :amt, version = version + 1, updated_at = datetime('now') WHERE user_id = :u`, { b: after, amt, u: userId });
   postTransaction({ userId, kind: 'bet', amount: -amt, reference, noteKey, note, balanceAfter: after });
+  announceWallet(userId);
   return after;
 }
 
@@ -59,6 +91,7 @@ export function credit({ userId, amount, kind = 'payout', reference, noteKey, no
     { b: after, won: wonDelta, u: userId }
   );
   postTransaction({ userId, kind, amount: amt, reference, noteKey, note, balanceAfter: after });
+  announceWallet(userId);
   return after;
 }
 
@@ -75,8 +108,14 @@ export function grantSignupBonus(userId) {
 }
 
 /** Daily demo top-up so a test account never becomes unusable. */
+export const dailyBonusEnabled = () => setting('demo_daily_bonus') === '1';
+
+/**
+ * Demo top-up for players whose balance is running dry. Only pays when the
+ * balance is below the threshold, so it behaves as a safety net, not income.
+ */
 export function dailyResetBonus(userId) {
-  if (setting('demo_daily_bonus') !== '1') return 0;
+  if (!dailyBonusEnabled()) return 0;
   const last = get(`SELECT created_at FROM transactions WHERE user_id = :u AND kind = 'daily_reset' ORDER BY id DESC LIMIT 1`, { u: userId });
   const day = new Date().toISOString().slice(0, 10);
   if (last && String(last.created_at).slice(0, 10) === day) return 0;

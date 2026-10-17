@@ -5,7 +5,6 @@
 export default {
   nav: { fairness: 'Provably fair', admin: 'Admin', legal: 'Policies', info: 'How it works' },
   key: 'Key',
-  unit_short_note: '',
   sec: {
     pw_long: '10 or more characters', pw_weak: 'Weak', pw_fair: 'Fair', pw_good: 'Good', pw_strong: 'Strong',
     pw_score: 'Password score', pw_missing: 'Still missing:',

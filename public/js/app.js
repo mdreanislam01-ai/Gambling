@@ -419,8 +419,21 @@ async function doLogout() {
 // ---------------------------------------------------------------------------
 function wireLive() {
   onLive('notification', () => { refreshNotifications(); });
-  onLive('wallet:update', (p) => { if (p?.balanceCents !== undefined) { patch({ wallet: { ...state.wallet, ...p } }, 'wallet'); } });
-  onLive('bet:settled', () => { api.invalidate('/wallet'); });
+  onLive('wallet:update', (p) => {
+    if (!p || p.userId !== state.user?.id) return;
+    patch({ wallet: { ...(state.wallet || {}), balance: p.balance, lifetimeWagered: p.lifetimeWagered, lifetimeWon: p.lifetimeWon, netResult: p.netResult, currency: p.currency, updatedAt: p.updatedAt } }, 'wallet');
+  });
+  onLive('bet:settled', (p) => {
+    api.invalidate('/wallet');
+    if (p?.gameKey) api.invalidate(`/bets?gameKey=${p.gameKey}`);
+    const settledId = p?.publicId ?? p?.betId ?? null;
+    if (state.betStatus?.id && settledId && String(state.betStatus.id) === String(settledId)) patch({ betStatus: { ...state.betStatus, status: p.status } }, 'betStatus');
+  });
+  onLive('bet:opened', (p) => {
+    if (p?.userId && p.userId !== state.user?.id) return;
+    const openedId = p?.id ?? p?.betId ?? null;
+    if (openedId) patch({ betStatus: { id: openedId, gameKey: p.gameKey, status: 'pending', bet: p } }, 'betStatus');
+  });
   subscribe((what) => { if (what === 'session' || what === 'wallet' || what === 'notifications') { renderTools(); } });
   every(60000, () => { refreshNotifications(); });
   every(15000, () => { const c = qs('#ftr-conn'); if (c) c.textContent = isLiveConnected() ? t('live.connected') : t('live.reconnecting'); });

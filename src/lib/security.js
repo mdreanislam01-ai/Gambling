@@ -38,9 +38,12 @@ export function passwordIssues(pw) {
   if (!/[a-z]/.test(s)) out.push('sec.pw_lower');
   if (!/[A-Z]/.test(s)) out.push('sec.pw_upper');
   if (!/[0-9]/.test(s)) out.push('sec.pw_digit');
-  if (!/[^A-Za-z0-9]/.test(s)) out.push('sec.pw_symbol');
   if (/^(password|123456|qwerty|letmein|welcome)/i.test(s)) out.push('sec.pw_common');
-  return out;
+  // A space at either end is an input accident, and a "symbol" made only of
+  // spaces adds nothing — so require real punctuation once the length is sane.
+  if (/^\s|\s$/.test(s)) out.push('sec.pw_space');
+  if (s.length >= 10 && !/[^A-Za-z0-9\s]/.test(s)) out.push('sec.pw_symbol');
+  return [...new Set(out)];
 }
 
 export const token = (bytes = 32) => crypto.randomBytes(bytes).toString('hex');

@@ -1,5 +1,6 @@
 import { all, get, run } from '../db/index.js';
 import { json } from '../lib/util.js';
+import { HttpError } from '../lib/http.js';
 
 export const CATEGORIES = [
   { key: 'slots', nameKey: 'cat.slots' },
@@ -44,9 +45,13 @@ const shape = (row, { includeConfig = false } = {}) => {
   return out;
 };
 
-export function listGames({ category = null, search = null, userId = null, visibility = 'public', sort = 'curated', limit = 200, offset = 0, includeHidden = false } = {}) {
+/**
+ * Shared WHERE builder for the lobby. listGames() and countGames() use the same
+ * predicates, so the "N games" label can never disagree with the rows shown.
+ */
+function gameFilter({ category = null, search = null, userId = null, visibility = 'public', includeHidden = false } = {}) {
   const where = [];
-  const p = { limit: Math.min(500, Math.max(1, limit)), offset: Math.max(0, offset) };
+  const p = {};
   if (!includeHidden) {
     where.push(visibility === 'public' ? `g.visibility = 'public'` : `g.visibility IN ('public','logged_in')`);
     where.push('g.enabled = 1');
@@ -58,8 +63,10 @@ export function listGames({ category = null, search = null, userId = null, visib
   if (category === 'new') where.push('g.is_new = 1');
   if (category === 'popular') where.push('g.popularity > 0');
   if (search) {
-    where.push('(g.name LIKE :q OR g.tags LIKE :q OR g.key LIKE :q)');
-    p.q = `%${String(search).slice(0, 60)}%`;
+    // User text is escaped so a literal "%" or "_" cannot match the whole table.
+    const like = `%${escapeLike(String(search).slice(0, 60))}%`;
+    where.push(`(g.name LIKE :q ESCAPE '\\' OR g.key LIKE :q ESCAPE '\\' OR g.tags LIKE :q ESCAPE '\\' OR g.category LIKE :q ESCAPE '\\' OR g.name_key LIKE :q ESCAPE '\\')`);
+    p.q = like;
   }
   if (category === 'favorites' && userId) {
     where.push(`EXISTS (SELECT 1 FROM favorites f WHERE f.game_key = g.key AND f.user_id = :userId)`);
@@ -67,6 +74,14 @@ export function listGames({ category = null, search = null, userId = null, visib
   } else if (category === 'favorites') {
     where.push('1 = 0');
   }
+  return { where, p };
+}
+
+const escapeLike = (v) => v.replace(/[\\%_]/g, (c) => '\\' + c);
+
+export function listGames({ category = null, search = null, userId = null, visibility = 'public', sort = 'curated', limit = 200, offset = 0, includeHidden = false } = {}) {
+  const { where, p: filters } = gameFilter({ category, search, userId, visibility, includeHidden });
+  const p = { ...filters, limit: Math.min(500, Math.max(1, limit)), offset: Math.max(0, offset) };
   const order = sort === 'newest' ? 'g.is_new DESC, g.sort ASC' : sort === 'popular' ? 'g.popularity DESC, g.plays DESC' : sort === 'az' ? 'g.name ASC' : 'g.featured DESC, g.sort ASC';
   const rows = all(
     `SELECT g.*${userId ? ', (SELECT 1 FROM favorites f WHERE f.game_key = g.key AND f.user_id = :fu) AS fav' : ''}
@@ -76,7 +91,11 @@ export function listGames({ category = null, search = null, userId = null, visib
   return rows.map((r) => ({ ...shape(r), favorite: !!r.fav }));
 }
 
-export const countGames = () => get(`SELECT COUNT(*) c FROM games WHERE enabled = 1`)?.c ?? 0;
+export function countGames(opts = {}) {
+  const { where, p } = gameFilter(opts);
+  const sql = `SELECT COUNT(*) c FROM games g${where.length ? ' WHERE ' + where.join(' AND ') : ''}`;
+  return get(sql, Object.keys(p).length ? p : undefined)?.c ?? 0;
+}
 
 export function getGame(key, { includeDisabled = false } = {}) {
   const row = get(`SELECT g.*${includeDisabled ? '' : ''} FROM games g WHERE g.key = :key`, { key });
@@ -111,7 +130,7 @@ export function categoriesWithCounts() {
 }
 
 export function setFavorite(userId, gameKey, on) {
-  if (!get(`SELECT 1 ok FROM games WHERE key = :k`, { k: gameKey })) return { error: 'err.game_not_found' };
+  if (!get(`SELECT 1 ok FROM games WHERE key = :k`, { k: gameKey })) throw new HttpError(404, 'err.game_not_found');
   if (on) run(`INSERT INTO favorites(user_id, game_key) VALUES(:u,:g) ON CONFLICT DO NOTHING`, { u: userId, g: gameKey });
   else run(`DELETE FROM favorites WHERE user_id = :u AND game_key = :g`, { u: userId, g: gameKey });
   return { favorite: !!on, count: get(`SELECT COUNT(*) c FROM favorites WHERE user_id = :u`, { u: userId })?.c ?? 0 };
