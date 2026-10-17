@@ -8,6 +8,7 @@ import { categoriesWithCounts, listLiveTables } from '../services/catalog.js';
 import { crashPublicState, roundHistory } from '../services/crash.js';
 import { listMail } from '../services/audit.js';
 import * as sports from '../services/sports.js';
+import { legalDoc, LEGAL_DOCS } from '../data/legal.js';
 
 const activeBanners = () =>
   all(
@@ -94,15 +95,26 @@ export function registerSystemRoutes(route) {
     return { rows: safe, demoMode: true, noteKey: 'dev.mailbox_note' };
   });
 
+  /**
+   * Long-form policy documents, already localised for the request locale so the
+   * client never ends up mixing English and Bangla paragraphs.
+   */
+  route('GET', '/api/legal', (ctx) => ({
+    docs: LEGAL_DOCS.map((key) => {
+      const d = legalDoc(key, ctx.locale === 'bn' ? 'bn' : 'en');
+      return { key, title: d.title, version: d.version, effective: d.effective, sections: d.sections.length };
+    }),
+    termsVersion: setting('terms_version', '1.0.0'),
+  }));
+
   route('GET', '/api/legal/:doc', (ctx) => {
-    const docs = {
-      terms: { titleEn: 'Terms of use (demo)', titleBn: 'ব্যবহারের শর্তাবলী (ডেমো)', version: setting('terms_version', '1.0.0') },
-      privacy: { titleEn: 'Privacy notice', titleBn: 'গোপনীয়তা নোটিশ', version: '1.0.0' },
-      responsible: { titleEn: 'Responsible gaming', titleBn: 'দায়িত্বশীল গেমিং', version: '1.0.0' },
-      fairness: { titleEn: 'Provably fair methodology', titleBn: 'প্রমাণযোগ্য ন্যায্যতা পদ্ধতি', version: '1.0.0' },
+    const aliases = {
+      'gambling-help': 'help', gambling_help: 'help', help: 'help', 'how-to-play': 'rules',
+      fair: 'fairness', 'provably-fair': 'fairness',
     };
-    const doc = docs[ctx.params.doc];
-    if (!doc) return { error: true };
-    return { key: ctx.params.doc, ...doc };
+    const key = aliases[ctx.params.doc] || ctx.params.doc;
+    const doc = legalDoc(key, ctx.locale === 'bn' ? 'bn' : 'en');
+    if (!doc) throw new HttpError(404, 'err.doc_missing', { doc: ctx.params.doc });
+    return doc;
   });
 }

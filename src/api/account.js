@@ -5,10 +5,11 @@ import config from '../config.js';
 import * as users from '../services/users.js';
 import { setLimits, selfExclude } from '../services/users.js';
 import { listNotifications, markRead, unreadCount, clearNotifications, notifyUser } from '../services/notify.js';
-import { netLossToday, wageredThisWeek, walletSummary } from '../services/wallet.js';
+import { netLossToday, wageredThisWeek, walletSummary, transactions } from '../services/wallet.js';
 import { setting } from '../services/settings.js';
 import { audit, sendMail } from '../services/audit.js';
 import { listUserBets } from '../services/bets.js';
+import { toCsv } from '../services/stats.js';
 
 export function registerAccountRoutes(route) {
   route('GET', '/api/notifications', { auth: true }, (ctx) => ({
@@ -112,6 +113,44 @@ export function registerAccountRoutes(route) {
     const r = run(`UPDATE support_tickets SET status = 'closed', updated_at = datetime('now') WHERE ref = :r AND user_id = :u`, { r: ctx.params.ref, u: ctx.user.id });
     if (!r.changes) throw new HttpError(404, 'err.ticket_not_found');
     return { ok: true };
+  });
+
+  /**
+   * Personal data export (privacy: users can always take their own data with them).
+   * Ownership is implicit — the queries are scoped to ctx.user.id.
+   */
+  route('GET', '/api/account/export/:kind', { auth: true }, (ctx) => {
+    const kind = ctx.params.kind;
+    const days = clamp(Number(ctx.query.days) || 365, 1, 3650);
+    let filename = `arenaplay-${kind}.csv`;
+    let body = '';
+    if (kind === 'bets' || kind === 'history') {
+      const rows = listUserBets(ctx.user.id, { limit: 200, offset: 0 }).rows;
+      body = toCsv(rows.map((b) => ({
+        id: b.id, kind: b.kind, game: b.gameKey, stake_cents: b.stake, payout_cents: b.payout,
+        profit_cents: b.payout - b.stake, multiplier: b.multiplier ?? '', status: b.status,
+        created_at: b.createdAt, settled_at: b.settledAt ?? '',
+      })), ['id', 'kind', 'game', 'stake_cents', 'payout_cents', 'profit_cents', 'multiplier', 'status', 'created_at', 'settled_at'].map((k) => ({ key: k, label: k })));
+      if (!rows.length) body = 'id,kind,game,stake_cents,payout_cents,profit_cents,multiplier,status,created_at,settled_at';
+    } else if (kind === 'transactions' || kind === 'wallet') {
+      const rows = transactions(ctx.user.id, { limit: 500, offset: 0 });
+      body = toCsv(rows.map((x) => ({ id: x.id, kind: x.kind, amount_cents: x.amount, balance_after_cents: x.balanceAfter, reference: x.reference ?? '', note: x.noteKey ?? '', created_at: x.createdAt })),
+        ['id', 'kind', 'amount_cents', 'balance_after_cents', 'reference', 'note', 'created_at'].map((k) => ({ key: k, label: k })));
+      if (!rows.length) body = 'id,kind,amount_cents,balance_after_cents,reference,note,created_at';
+    } else if (kind === 'profile') {
+      filename = 'arenaplay-profile.json';
+      const u = get(`SELECT id, email, username, role, status, locale, avatar, phone, country, birthdate, created_at, last_login_at, marketing_optin, notify_email, notify_push, reality_check, daily_loss_limit, weekly_wager_limit, session_limit_min FROM users WHERE id = :id`, { id: ctx.user.id });
+      body = JSON.stringify({ exportedAt: new Date().toISOString(), demoMode: true, profile: u, wallet: walletSummary(ctx.user.id), notifications: listNotifications(ctx.user.id, { limit: 100 }) }, null, 2);
+    } else {
+      throw new HttpError(404, 'err.export_kind');
+    }
+    ctx.res.writeHead(200, {
+      'Content-Type': kind === 'profile' ? 'application/json; charset=utf-8' : 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'no-store',
+    });
+    ctx.res.end(`${body}\n`);
+    return undefined;
   });
 
   route('GET', '/api/account/activity', { auth: true }, (ctx) => {

@@ -4,7 +4,7 @@ import { get, all, run } from '../db/index.js';
 import { clamp, toCents } from '../lib/util.js';
 import * as catalog from '../services/catalog.js';
 import { listUserBets, placeCasinoBet, actOnBet, getActiveHand, abandonHand, stats as betStats } from '../services/bets.js';
-import { walletSummary, transactions, dailyResetBonus, netLossToday, transactionCount } from '../services/wallet.js';
+import { walletSummary, transactions, dailyResetBonus, netLossToday, transactionCount, dailyBonusStatus } from '../services/wallet.js';
 import { seedView, historySeeds, setClientSeed, rotateSeed, verifyBet } from '../services/fairness.js';
 import { crashEngine, crashPublicState, roundHistory } from '../services/crash.js';
 import { liveEngine } from '../services/live.js';
@@ -101,6 +101,7 @@ export function registerGameRoutes(route) {
       sessionMinutes: ctx.user.limits.sessionMinutes,
     },
     demoNotice: { titleKey: 'rg.demo_notice', currency: config.demo.currency, unitLabel: 'demo_credit' },
+    dailyBonus: dailyBonusStatus(ctx.user.id),
   }));
 
   route('POST', '/api/wallet/claim-daily', { auth: true, limit: 'write' }, (ctx) => {

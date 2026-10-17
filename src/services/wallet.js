@@ -87,6 +87,18 @@ export function dailyResetBonus(userId) {
   return amount;
 }
 
+/** Whether the daily demo top-up is available, and why not (used by /api/wallet). */
+export function dailyBonusStatus(userId) {
+  const amount = Number(setting('signup_bonus_cents', config.demo.signupBonusCents));
+  if (setting('demo_daily_bonus') !== '1') return { available: false, amount: 0, reason: 'disabled' };
+  const last = get(`SELECT created_at FROM transactions WHERE user_id = :u AND kind = 'daily_reset' ORDER BY id DESC LIMIT 1`, { u: userId });
+  const day = new Date().toISOString().slice(0, 10);
+  if (last && String(last.created_at).slice(0, 10) === day) return { available: false, amount, reason: 'claimed_today' };
+  const w = ensureWallet(userId);
+  if (w.balance > 5000) return { available: false, amount, reason: 'balance_high', balance: w.balance };
+  return { available: true, amount };
+}
+
 export function netLossToday(userId) {
   const row = get(
     `SELECT COALESCE(SUM(stake - payout), 0) AS loss FROM bets

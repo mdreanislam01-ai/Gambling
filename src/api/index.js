@@ -3,7 +3,7 @@ import { Router, HttpError, sendError, sendJson, serveStatic, buildContext, read
 import { RateLimiter } from '../lib/security.js';
 import config from '../config.js';
 import { resolveSession, publicUser } from '../services/users.js';
-import { isMaintenance } from '../services/settings.js';
+import { isMaintenance, registrationOpen } from '../services/settings.js';
 import { logError } from '../services/audit.js';
 import { json } from '../lib/util.js';
 import { registerAuthRoutes } from './auth.js';
@@ -81,7 +81,10 @@ export async function handle(req, res) {
     } else if (MUTATING.has(ctx.method)) {
       ctx.csrfOk = true; // anonymous mutations are protected by their own rate limits + captcha hooks
     }
-    ctx.locale = ctx.user?.locale || (config.locale.supported.includes(ctx.cookies[config.cookie.locale]) ? ctx.cookies[config.cookie.locale] : config.locale.default);
+    const qLocale = ctx.query?.locale;
+    ctx.locale = (config.locale.supported.includes(qLocale) ? qLocale : null)
+      || ctx.user?.locale
+      || (config.locale.supported.includes(ctx.cookies[config.cookie.locale]) ? ctx.cookies[config.cookie.locale] : config.locale.default);
     if (MUTATING.has(ctx.method) && sid && !s) {
       const cur = res.getHeader('Set-Cookie');
       const arr = cur ? (Array.isArray(cur) ? cur : [cur]) : [];
@@ -118,6 +121,9 @@ export async function handle(req, res) {
         csrf: ctx.session?.csrf ?? null,
         maintenance: isMaintenance(),
         demo: config.demo,
+        env: config.isProd ? 'production' : 'development',
+        version: '1.0.0',
+        flags: { registrationOpen: registrationOpen() },
       }).replace(/</g, '\\u003c'),
     };
     if (serveStatic(config.publicDir, url.pathname, req, res, inject)) return;
