@@ -18,7 +18,9 @@ const slotConfig = (symbols, opts = {}) => ({
   rows: 3,
   lines: opts.lines ?? 5,
   symbols,
-  freeSpins: opts.freeSpins ?? { scatterMin: 2, spins: 5, multiplier: 2 },
+  // `??` would swallow an explicit `freeSpins: null`, which is how a title says
+  // "this game has no bonus round". Check for the key instead.
+  freeSpins: 'freeSpins' in opts ? opts.freeSpins : { scatterMin: 2, spins: 5, multiplier: 2 },
 });
 
 const GAMES = [
@@ -67,7 +69,7 @@ const GAMES = [
   { key: 'vip-blackjack', name: 'VIP Blackjack', nameKey: 'game.vip_blackjack', category: 'cards', engine: 'blackjack', desc: 'game.desc.vip_blackjack', min: 5000, max: 5000000, rtp: 9960, edge: 40, vol: 'low', accent: 'violet', tags: ['blackjack', 'high-roller'], visibility: 'logged_in', sort: 55, layout: 'wide' },
   { key: 'punto-banco', name: 'Baccarat Punto Banco', nameKey: 'game.punto_banco', category: 'table', engine: 'baccarat', desc: 'game.desc.punto_banco', min: 200, max: 1500000, rtp: 9894, edge: 106, vol: 'low', accent: 'crimson', tags: ['baccarat', 'commission'], sort: 50 },
   { key: 'jacks-or-better', name: 'Video Poker — Jacks or Better', nameKey: 'game.jacks_or_better', category: 'cards', engine: 'video_poker', desc: 'game.desc.jacks_or_better', min: 100, max: 400000, rtp: 9954, edge: 46, vol: 'medium', accent: 'cyan', tags: ['video-poker', 'skill'], sort: 60 },
-  { key: 'three-patti-showdown', name: '3 Patti Showdown', nameKey: 'game.three_patti', category: 'cards', engine: 'three_patti', desc: 'game.desc.three_patti', min: 100, max: 500000, rtp: 9700, edge: 300, vol: 'high', accent: 'amber', tags: ['poker', 'south-asia', 'vs-dealer'], new: 1, sort: 58, layout: 'wide' },
+  { key: 'three-patti-showdown', name: '3 Patti Showdown', nameKey: 'game.three_patti', category: 'cards', engine: 'three_patti', desc: 'game.desc.three_patti', min: 100, max: 500000, rtp: 9900, edge: 100, vol: 'high', accent: 'amber', tags: ['poker', 'south-asia', 'vs-dealer'], new: 1, sort: 58, layout: 'wide' },
   { key: 'lucky-dice', name: 'Lucky Dice', nameKey: 'game.lucky_dice', category: 'table', engine: 'dice', desc: 'game.desc.lucky_dice', min: 50, max: 500000, rtp: 9900, edge: 100, vol: 'medium', accent: 'emerald', tags: ['dice', 'fast'], sort: 65 },
   { key: 'bubble-mines', name: 'Bubble Mines', nameKey: 'game.bubble_mines', category: 'arcade', engine: 'mines', desc: 'game.desc.bubble_mines', min: 100, max: 300000, rtp: 9900, edge: 100, vol: 'high', accent: 'violet', tags: ['mines', 'arcade', 'skill'], sort: 70 },
   { key: 'money-drop-wheel', name: 'Money Drop Wheel', nameKey: 'game.money_drop_wheel', category: 'arcade', engine: 'wheel', desc: 'game.desc.money_drop_wheel', min: 100, max: 400000, rtp: 9600, edge: 400, vol: 'medium', accent: 'gold', tags: ['wheel', 'multiplier'], sort: 75 },

@@ -149,11 +149,18 @@ export async function readBody(ctx) {
   const type = String(req.headers['content-type'] || '');
   if (!len && type.includes('json') === false && type !== '') return null;
   const limit = config.maxBodyBytes;
+  /**
+   * Refuse the payload but drain the socket: if we answer 413 while the rest of
+   * the body is still inbound, the connection cannot be reused and the client's
+   * next keep-alive request fails with a bare connection error.
+   */
+  const reject = () => { req.resume(); throw new HttpError(413, 'err.body_too_large', { limit }); };
+  if (len > limit) reject();
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > limit) throw new HttpError(413, 'err.body_too_large', { limit });
+    if (size > limit) reject();
     chunks.push(chunk);
   }
   const raw = Buffer.concat(chunks).toString('utf8');

@@ -11,7 +11,7 @@ import { toast, toastOk, toastError, modal, every } from '../core/ui.js';
 import { isLiveConnected } from '../core/sse.js';
 import { rouletteColour } from './tables.js';
 import { paytable, resultBanner, cardFace, openVerifier } from './session.js';
-import { PLINKO_TABLES, WHEEL_SEGMENTS, ROULETTE_RED, MINES_CELLS, SEG_COLORS } from './tables.js';
+import { WHEEL_SEGMENTS, ROULETTE_RED, MINES_CELLS, SEG_COLORS } from './tables.js';
 
 const SUIT_ICON = { s: '♠', h: '♥', d: '♦', c: '♣' };
 const SYMBOL_ICON = {
@@ -60,7 +60,10 @@ const spinFx = (el, ms, cls = 'is-spinning') => {
 // ---------------------------------------------------------------------------
 export async function slots(s) {
   const cfg = s.game.config || {};
-  const symbols = cfg.symbols || Object.keys(SYMBOL_ICON).slice(0, 6).map((key) => ({ key, weight: 10, pays: { 3: 3 } }));
+  // The server sends the calibrated paytable (engineDisplayConfig in
+  // src/api/game.js). Without it we show nothing rather than invented prizes.
+  const scale = Number(cfg.payScale) || 1;
+  const symbols = cfg.symbols || [];
   const rows = cfg.rows || 3;
   const reelCount = cfg.reels || 3;
   paint(s.stage, html`
@@ -106,7 +109,7 @@ export async function slots(s) {
   s.side.append(box);
   paint(box.querySelector('.paytable'), paytable(symbols.map((sy) => [
     html`<span class="row" style="gap:6px">${iconOfSymbol(sy.key)} ${t(`slot.symbol.${sy.key}`, { defaultValue: sy.key })}</span>`,
-    html`<span class="mono">${Object.entries(sy.pays || {}).map(([n, p]) => `${n}× → ${fmtMultiplier(p)}`).join(' · ') || '—'}</span>`,
+    html`<span class="mono">${Object.entries(sy.pays || {}).map(([n, p]) => `${n}× → ${fmtMultiplier(Math.round(Number(p) * scale * 1000) / 1000)}`).join(' · ') || '—'}</span>`,
   ])));
   return () => { box.remove(); };
 }
@@ -395,19 +398,29 @@ export async function wheel(s) {
   return () => {};
 }
 function winSegText(s, target) {
-  const edge = (s.game.houseEdgeBps ?? 400) / 10000;
+  // Mirrors wheel.init() in src/games/table.js: each visible slice is split into
+  // sub-slots, because a 20-slice wheel cannot express 1.2x or 50x honestly.
+  const edge = Math.max(0, Math.min(0.2, (s.game.houseEdgeBps ?? 400) / 10000));
   const segs = WHEEL_SEGMENTS || 20;
-  return fmtNum(Math.max(1, Math.min(segs, Math.round((segs * (1 - edge)) / target))));
+  const sub = Math.max(20, Math.ceil(target) * 10);
+  const total = segs * sub;
+  const winning = Math.max(1, Math.min(total - 1, Math.floor((total * (1 - edge)) / target)));
+  return fmtNum(Math.round((winning / sub) * 100) / 100);
 }
 
 // ---------------------------------------------------------------------------
 // PLINKO
 // ---------------------------------------------------------------------------
 export async function plinko(s) {
+  // The bucket multipliers come from the game config the server publishes, so the
+  // board cannot show a table the engine does not pay, and switching risk actually
+  // changes what is drawn.
+  const cfg = s.game.config || {};
+  const tables = cfg.tables || {};
   let risk = 'medium';
-  const table = (PLINKO_TABLES || {})[risk] || [];
   const paint_ = (path = null, bucket = null) => {
-    const rows = 12;
+    const table = tables[risk] || [];
+    const rows = cfg.rows || 12;
     const pegs = [];
     for (let r = 0; r < rows; r += 1) {
       const count = r + 3;
@@ -515,7 +528,6 @@ export async function blackjack(s) {
           ${actions.includes('stand') ? html`<button class="btn" type="button" data-act="stand">${t('btn.stand')}</button>` : ''}
           ${actions.includes('double') ? html`<button class="btn btn--gold" type="button" data-act="double">${t('btn.double')}</button>` : ''}
           ${actions.includes('split') ? html`<button class="btn" type="button" data-act="split">${t('btn.split')}</button>` : ''}
-          ${actions.includes('insurance') ? html`<button class="btn btn--ghost" type="button" data-act="insurance">${t('btn.insurance')}</button>` : ''}
           <span class="grow"></span>
           <button class="btn btn--red btn--sm" type="button" data-act="abandon">${t('btn.abandon')}</button>
         </div></div>`
@@ -593,21 +605,47 @@ export async function videoPoker(s) {
 // ---------------------------------------------------------------------------
 const SIDES = {
   baccarat: [
-    { side: 'player', labelKey: 'bacc.player', pay: '1:1' },
-    { side: 'banker', labelKey: 'bacc.banker', pay: '0.95:1' },
-    { side: 'tie', labelKey: 'bacc.tie', pay: '8:1' },
-    { side: 'pair_player', labelKey: 'bacc.pair_player', pay: '11:1' },
-    { side: 'pair_banker', labelKey: 'bacc.pair_banker', pay: '11:1' },
+    { side: 'player', labelKey: 'bacc.player' },
+    { side: 'banker', labelKey: 'bacc.banker' },
+    { side: 'tie', labelKey: 'bacc.tie' },
+    { side: 'pair_player', labelKey: 'bacc.pair_player' },
+    { side: 'pair_banker', labelKey: 'bacc.pair_banker' },
   ],
   three_patti: [
-    { side: 'player', labelKey: 'patti.player', pay: '1:1' },
-    { side: 'tie', labelKey: 'patti.tie', pay: '8:1' },
-    { side: 'pair_plus', labelKey: 'patti.pair_plus', pay: '25:1' },
+    { side: 'player', labelKey: 'patti.player' },
+    { side: 'pair_plus', labelKey: 'patti.pair_plus' },
   ],
 };
+
+/**
+ * Chips are labelled from the pay map the server publishes with the game, so the
+ * number on the button is the number the engine pays. Odds are shown as profit
+   ("n:1"), the engine stores the total return, so 2 means 1:1 and 1.95 means
+ * 0.95:1. A tiered side such as Pair Plus is shown as its range.
+ */
+function oddsLabel(pays) {
+  if (pays === null || pays === undefined) return null;
+  if (typeof pays === 'number') {
+    const profit = Math.round((pays - 1) * 100) / 100;
+    return `${fmtMultiplier(profit)}:1`;
+  }
+  const values = Object.values(pays).map(Number).filter((n) => Number.isFinite(n));
+  if (!values.length) return null;
+  const top = Math.max(...values);
+  const low = Math.min(...values);
+  if (top === low) return `${fmtMultiplier(top - 1)}:1`;
+  return `${fmtMultiplier(low - 1 > 0 ? low - 1 : 0)}:1-${fmtMultiplier(top - 1)}:1`;
+}
 export function sideBetGame(engine) {
   return async function view(s) {
-    const sides = SIDES[engine] || SIDES.baccarat;
+    const cfg = s.game.config || {};
+    const all = SIDES[engine] || SIDES.baccarat;
+    // The server decides which sides exist at all: a bet type the engine refuses
+    // must not be offered as a chip, even in demo mode.
+    const allowed = Array.isArray(cfg.sides) && cfg.sides.length ? cfg.sides : null;
+    const sides = all
+      .filter((sd) => !allowed || allowed.includes(sd.side))
+      .map((sd) => ({ ...sd, pay: oddsLabel(cfg.odds && cfg.odds[sd.side]) ?? '—' }));
     const legs = [];
     let chip = 500;
     const paint_ = (outcome = null) => {

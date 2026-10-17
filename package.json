@@ -18,6 +18,7 @@
     "test:watch": "node --test --watch",
     "icons": "node tools/make-icons.mjs",
     "check:locale": "node tools/check-locales.mjs",
+    "check:rtp": "node tools/check-rtp.mjs",
     "check:web": "node tools/check-web.mjs"
   },
   "dependencies": {},

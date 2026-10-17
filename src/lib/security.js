@@ -82,17 +82,6 @@ export function intFromHash(hash, maxExclusive, offset = 0) {
   return offset + (Number.parseInt(hash.slice(0, 8), 16) % maxExclusive);
 }
 
-/** Crash multiplier with configurable house edge (basis points). */
-export function crashPointFrom(hash, houseEdgeBps = 100) {
-  const e = 2 ** 52;
-  const x = floatFromHash(hash.slice(8, 16) + hash.slice(16, 24));
-  let point = Math.floor((100 * e - x) / (e - x)) / 100;
-  if (Number.isFinite(point) === false || point < 1) point = 1;
-  const edge = Math.max(0, Math.min(2000, houseEdgeBps)) / 10000;
-  point = Math.max(1, Math.floor(point * (1 - edge) * 100) / 100);
-  return Math.min(point, 5000);
-}
-
 // ---------------------------------------------------------------------------
 // Rate limiting — in-process token bucket per key. (Swap for Redis when the
 // app is horizontally scaled; the interface is intentionally tiny.)

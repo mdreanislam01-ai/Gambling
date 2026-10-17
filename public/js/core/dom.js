@@ -9,17 +9,18 @@ export const raw = (s) => ({ __raw: String(s ?? '') });
 
 export function html(strings, ...values) {
   let out = '';
-  strings.forEach((part, i) => {
-    out += part;
-    if (i < values.length) {
-      const v = values[i];
-      if (v === null || v === undefined || v === false || v === true) continue;
-      if (Array.isArray(v)) out += v.map((x) => (x && x.__raw ? x.__raw : html.isRaw(x) ? x.__raw : escapeHtml(x))).join('');
-      else if (v.__raw !== undefined) out += v.__raw;
-      else if (typeof v === 'object') out += escapeHtml(v.text ?? JSON.stringify(v));
-      else out += escapeHtml(v);
-    }
-  });
+  // A plain loop, not forEach: `continue` is only legal inside an iteration
+  // statement, and a SyntaxError here would take the whole app down.
+  for (let i = 0; i < strings.length; i += 1) {
+    out += strings[i];
+    if (i >= values.length) continue;
+    const v = values[i];
+    if (v === null || v === undefined || v === false || v === true) continue;
+    if (Array.isArray(v)) out += v.map((x) => (html.isRaw(x) ? x.__raw : escapeHtml(x))).join('');
+    else if (v.__raw !== undefined) out += v.__raw;
+    else if (typeof v === 'object') out += escapeHtml(v.text ?? JSON.stringify(v));
+    else out += escapeHtml(v);
+  }
   return { __raw: out };
 }
 html.isRaw = (v) => !!v && typeof v === 'object' && v.__raw !== undefined;

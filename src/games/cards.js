@@ -139,7 +139,24 @@ export const blackjack = {
 
 // ---------------------------------------------------------------------------
 // BACCARAT — Punto Banco third-card rules, 5 % commission on Banker, tie push.
+//
+// These maps are the whole truth about what a side pays: the client renders its
+// chips from them (see engineDisplayConfig in src/api/game.js) instead of
+// keeping its own copy, because a displayed "12:1" over a paid "11:1" is a
+// promise the game does not keep.
 // ---------------------------------------------------------------------------
+export const BACC_SIDES = ['player', 'banker', 'tie', 'pair_player', 'pair_banker'];
+export const BACCARAT_PAYS = { player: 2, banker: 1.95, tie: 9, pair_player: 11, pair_banker: 11 };
+
+export const PATTI_SIDES = ['player', 'pair_plus'];
+/**
+ * Total-return multipliers. `tie` used to be a selectable side at 8:1 while an
+ * exact tie between two 3-card hands happens about once in 1600 rounds — a 0.5%
+ * return bet, i.e. a trap wearing an odds label. The dealer still wins ties
+ * (that is where the player bet's edge comes from); the side bet is gone.
+ */
+export const PATTI_PAYS = { player: 2, pair_plus: { trail: 28, pure_seq: 18, seq: 8, color: 4, pair: 2 } };
+
 const pTotal = (cards) => cards.reduce((a, c) => {
   const r = rankOf(c);
   return a + (r === 'A' ? 1 : r === '10' || r === 'J' || r === 'Q' || r === 'K' ? 0 : Number(r) || 0);
@@ -148,7 +165,7 @@ const pTotal = (cards) => cards.reduce((a, c) => {
 export const baccarat = {
   key: 'baccarat',
   init({ rng, selection }) {
-    const bets = (Array.isArray(selection?.bets) ? selection.bets : []).filter((b) => b && ['player', 'banker', 'tie', 'pair_player', 'pair_banker'].includes(b.side));
+    const bets = (Array.isArray(selection?.bets) ? selection.bets : []).filter((b) => b && BACC_SIDES.includes(b.side));
     const deck = buildDeck(new Rng(`${rng.seedKey}|bac`), 8);
     let c = 0;
     const next = () => deck[c++];
@@ -175,7 +192,7 @@ export const baccarat = {
     const winner = fp > fb ? 'player' : fb > fp ? 'banker' : 'tie';
     const pp = player[0][0] === player[1][0];
     const bp = banker[0][0] === banker[1][0];
-    const pays = { player: 2, banker: 1.95, tie: 9, pair_player: 11, pair_banker: 11 };
+    const pays = BACCARAT_PAYS;
     let payout = 0;
     let staked = 0;
     const legs = bets.map((b) => {
@@ -185,12 +202,15 @@ export const baccarat = {
       if (b.side === winner) won = true;
       if (b.side === 'pair_player' && pp) won = true;
       if (b.side === 'pair_banker' && bp) won = true;
-      const pay = won ? Math.floor(amount * pays[b.side]) : 0;
+      // Punto Banco: a tie pushes Player and Banker. Treating it as a loss took
+      // ~9.5% of every stake and put the game at 90% against a 98.9% label.
+      const push = winner === 'tie' && (b.side === 'player' || b.side === 'banker');
+      const pay = won ? Math.floor(amount * pays[b.side]) : push ? amount : 0;
       payout += pay;
-      return { side: b.side, amount, won, payout: pay };
+      return { side: b.side, amount, won, push, payout: pay };
     });
     return {
-      status: payout === 0 ? 'lost' : 'won',
+      status: payout === 0 ? 'lost' : payout === staked ? 'void' : 'won',
       payout,
       multiplier: staked ? payout / staked : 0,
       outcome: { player, banker, playerTotal: fp, bankerTotal: fb, winner, natural, playerPair: pp, bankerPair: bp, legs },
@@ -231,7 +251,10 @@ export function evaluatePoker(cards) {
   if (groups[0] === 2 && groups[1] === 2) return 'two_pair';
   if (groups[0] === 2) {
     const [pairVal] = Object.entries(counts).filter(([, n]) => n === 2).map(([v]) => Number(v));
-    return pairVal >= 11 ? 'jacks' : 'none';
+    // RANK_ORDER runs 2→0 … J→9, Q→10, K→11, A→12, so "jacks or better" is >= 9.
+    // Reading this as >= 11 quietly dropped J and Q pairs — about 14 points of the
+    // game's return, on a table named after them.
+    return pairVal >= 9 ? 'jacks' : 'none';
   }
   return 'none';
 }
@@ -245,10 +268,14 @@ export const videoPoker = {
     return { status: 'pending', state: s, view: { cards: s.cards, held: [] }, actions: ['hold', 'draw'] };
   },
   act({ state, action, selection, stake }) {
-    const held = [...new Set((Array.isArray(selection?.held) ? selection.held : []).map(Number).filter((i) => Number.isInteger(i) && i >= 0 && i < 5))];
+    // Fall back to the state the previous action wrote: if the draw arrives
+    // without `held` a second time, the player must still keep what they held.
+    const source = Array.isArray(selection?.held) ? selection.held : (Array.isArray(state?.held) ? state.held : []);
+    const held = [...new Set(source.map(Number).filter((i) => Number.isInteger(i) && i >= 0 && i < 5))];
     const s = { ...state, held };
     if (action === 'hold') {
-      if (held.length === 5) return { error: 'err.action_not_allowed' };
+      // Holding all five is stand-pat: a made hand has to be able to keep it, so
+      // this used to reject the only play a winning player wanted.
       return { status: 'pending', state: s, view: { cards: s.cards, held }, actions: ['draw'] };
     }
     if (action !== 'draw') return { error: 'err.action_unknown' };
@@ -295,15 +322,15 @@ function pattiRank(cards) {
 export const threePatti = {
   key: 'three_patti',
   init({ rng, selection }) {
-    const bets = (Array.isArray(selection?.bets) ? selection.bets : []).filter((b) => ['player', 'tie', 'pair_plus'].includes(b.side));
+    const bets = (Array.isArray(selection?.bets) ? selection.bets : []).filter((b) => PATTI_SIDES.includes(b.side));
     const deck = buildDeck(new Rng(`${rng.seedKey}|3p`), 2);
     const player = [deck[0], deck[2], deck[4]];
     const dealer = [deck[1], deck[3], deck[5]];
     const p = pattiRank(player);
     const d = pattiRank(dealer);
     const cmp = p.tier - d.tier || (p.tie > d.tie ? 1 : p.tie < d.tie ? -1 : 0);
-    const pays = { player: 2, tie: 8, pair_plus: 0 };
-    const pairPlusMult = { trail: 30, pure_seq: 20, seq: 8, color: 5, pair: 3 };
+    const pays = PATTI_PAYS;
+    const pairPlusMult = pays.pair_plus;
     let payout = 0;
     let staked = 0;
     const legs = bets.map((b) => {
@@ -311,8 +338,7 @@ export const threePatti = {
       staked += amount;
       let won = false;
       let mult = 0;
-      if (b.side === 'player' && cmp > 0) { won = true; mult = 2; }
-      if (b.side === 'tie' && cmp === 0) { won = true; mult = 8; }
+      if (b.side === 'player' && cmp > 0) { won = true; mult = pays.player; }
       if (b.side === 'pair_plus') {
         const m = pairPlusMult[p.label];
         if (m) { won = true; mult = m; }

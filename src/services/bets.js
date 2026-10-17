@@ -145,10 +145,9 @@ export function placeCasinoBet({ user, gameKey, stake, selection, clientSeed }) 
   }
   const validated = validateSelection(game, selection, s);
   return tx(() => {
-    const fair = nextNonce(user.id);
-    if (clientSeed !== undefined && clientSeed !== null) {
-      run(`UPDATE fairness_seeds SET client_seed = :c WHERE id = :id`, { c: String(clientSeed).slice(0, 48) || 'player', id: fair.seedId });
-    }
+    // The client seed, if the bet supplied one, is applied while the nonce is
+    // taken, so the roll below and the record of this bet use the same value.
+    const fair = nextNonce(user.id, clientSeed);
     wallet.debit({ userId: user.id, amount: s, reference: null, noteKey: 'wallet.note.stake' });
     const engine = engineFor(game);
     const out = engine.run({ stake: s, selection: validated, game, rng: rngFrom(fair) });
@@ -160,7 +159,7 @@ export function placeCasinoBet({ user, gameKey, stake, selection, clientSeed }) 
     const row = openBetRow({
       userId: user.id, kind: 'casino', gameKey, stake: s,
       selection: { ...validated, ...(resolved?.outcome ? {} : {}) },
-      fair: { ...fair, clientSeed: clientSeed ?? fair.clientSeed },
+      fair,
       state, view,
     });
     recordDay({ wagered: s, paid: 0, count: 0 });
@@ -188,7 +187,7 @@ export async function actOnBet({ user, betId, action, selection }) {
   if (!row) throw new HttpError(404, 'err.bet_not_found');
   if (row.user_id !== user.id) throw new HttpError(403, 'err.forbidden');
   if (row.status !== 'pending') throw new HttpError(409, 'err.round_closed');
-  const game = { engine: row.engine, config: json(row.config, {}), house_edge_bps: 100, ...catalog.getGame(row.game_key, { includeDisabled: true }) };
+  const game = { ...catalog.getGame(row.game_key, { includeDisabled: true }), engine: row.engine, config: json(row.config, {}) };
   const engine = engineFor({ ...game, engine: row.engine });
   if (!engine.actions) throw new HttpError(400, 'err.action_not_allowed');
   const state = json(row.state, null);

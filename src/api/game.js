@@ -9,6 +9,26 @@ import { seedView, historySeeds, setClientSeed, rotateSeed, verifyBet } from '..
 import { crashEngine, crashPublicState, roundHistory } from '../services/crash.js';
 import { liveEngine } from '../services/live.js';
 import { readStake } from './auth.js';
+import { ENGINES } from '../games/index.js';
+
+/**
+ * The play screen draws its own paytable, so the row has to carry the numbers the
+ * engine will actually pay — for slots the prize scale is derived by the engine
+ * from the configured RTP, and it is not stored on the catalogue row.
+ */
+function engineDisplayConfig(game) {
+  const cfg = { ...(game.config || {}) };
+  if (game.engine === 'slots' && ENGINES.slots.config) {
+    const calibrated = ENGINES.slots.config(game);
+    cfg.reels = calibrated.reels;
+    cfg.rows = calibrated.rows;
+    cfg.lines = calibrated.lines;
+    cfg.symbols = calibrated.symbols;
+    cfg.freeSpins = calibrated.freeSpins ?? null;
+    cfg.payScale = calibrated.payScale;
+  }
+  return cfg;
+}
 
 const requireUser = (ctx) => {
   if (!ctx.user) throw new HttpError(401, 'auth.required');
@@ -33,9 +53,12 @@ export function registerGameRoutes(route) {
   route('GET', '/api/games/categories', () => ({ rows: catalog.categoriesWithCounts() }));
 
   route('GET', '/api/games/:key', (ctx) => {
-    const game = catalog.getGame(ctx.params.key) ||
+    // includeConfig: the play screen shows the paytable, so the row must carry
+    // the symbols and weights that the engine actually spins.
+    const game = catalog.getGame(ctx.params.key, { includeConfig: true }) ||
       (ctx.user?.role === 'admin' ? catalog.updateGame(ctx.params.key, {}) : null);
     if (!game) throw new HttpError(404, 'err.game_not_found');
+    if (game) game.config = engineDisplayConfig(game);
     const live = all(`SELECT status FROM bets WHERE user_id = :u AND game_key = :k AND status = 'pending'`, { u: ctx.user?.id ?? 0, k: ctx.params.key });
     return {
       game,

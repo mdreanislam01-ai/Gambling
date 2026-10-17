@@ -1,5 +1,5 @@
 import { HttpError } from '../lib/http.js';
-import { cardGames } from './cards.js';
+import { cardGames, BACC_SIDES, PATTI_SIDES } from './cards.js';
 import { tableGames, rouletteBetPayout, WHEEL_TARGETS, PLINKO_TABLES, MINES_CELLS } from './table.js';
 import { reelGames } from './reels.js';
 import { settleCrashBet, crashPoint } from './crash.js';
@@ -9,8 +9,6 @@ const { roulette, dice, mines, wheel, plinko, bingo } = tableGames;
 const { blackjack, baccarat, videoPoker, threePatti } = cardGames;
 
 const ROULETTE_TYPES = ['straight', 'split', 'street', 'corner', 'sixline', 'red', 'black', 'odd', 'even', 'low', 'high', 'dozen', 'column'];
-const BACC_SIDES = ['player', 'banker', 'tie', 'pair_player', 'pair_banker'];
-const PATTI_SIDES = ['player', 'tie', 'pair_plus'];
 
 const money = (v) => {
   const n = Math.round(Number(v));
