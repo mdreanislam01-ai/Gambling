@@ -10,6 +10,8 @@ import { crashEngine, crashPublicState, roundHistory } from '../services/crash.j
 import { liveEngine } from '../services/live.js';
 import { readStake } from './auth.js';
 import { ENGINES } from '../games/index.js';
+import { BACC_SIDES, BACCARAT_PAYS, PATTI_SIDES, PATTI_PAYS } from '../games/cards.js';
+import { PLINKO_ROWS, PLINKO_TABLES, MINES_CELLS, WHEEL_TARGETS, WHEEL_SEGMENTS, BINGO_LINES, BINGO_BALLS, BINGO_CALLS } from '../games/table.js';
 
 /**
  * The play screen draws its own paytable, so the row has to carry the numbers the
@@ -26,6 +28,32 @@ function engineDisplayConfig(game) {
     cfg.symbols = calibrated.symbols;
     cfg.freeSpins = calibrated.freeSpins ?? null;
     cfg.payScale = calibrated.payScale;
+  }
+  // Everything else the play screen prints a number for is served from the engine
+  // too, so a label can never disagree with what is paid.
+  if (game.engine === 'baccarat') {
+    cfg.sides = BACC_SIDES;
+    cfg.odds = BACCARAT_PAYS;
+  }
+  if (game.engine === 'three_patti') {
+    cfg.sides = PATTI_SIDES;
+    cfg.odds = PATTI_PAYS;
+  }
+  if (game.engine === 'plinko') {
+    cfg.rows = PLINKO_ROWS;
+    cfg.tables = PLINKO_TABLES;
+  }
+  if (game.engine === 'wheel') {
+    cfg.segments = WHEEL_SEGMENTS;
+    cfg.options = WHEEL_TARGETS;
+  }
+  if (game.engine === 'mines') {
+    cfg.cells = MINES_CELLS;
+  }
+  if (game.engine === 'bingo') {
+    cfg.lines = BINGO_LINES.length;
+    cfg.balls = BINGO_BALLS;
+    cfg.calls = BINGO_CALLS;
   }
   return cfg;
 }
