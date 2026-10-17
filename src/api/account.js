@@ -12,18 +12,22 @@ import { listUserBets } from '../services/bets.js';
 import { toCsv } from '../services/stats.js';
 
 export function registerAccountRoutes(route) {
+  // The notification list, newest first, with unread counts.
   route('GET', '/api/notifications', { auth: true }, (ctx) => ({
     rows: listNotifications(ctx.user.id, { limit: clamp(Number(ctx.query.limit) || 30, 1, 100), unreadOnly: ctx.query.unread === '1' }),
     unread: unreadCount(ctx.user.id),
   }));
 
+  // Mark one notification or all of them read.
   route('POST', '/api/notifications/read', { auth: true }, (ctx) => {
     const changed = markRead(ctx.user.id, ctx.body?.id ?? 'all');
     return { changed, unread: unreadCount(ctx.user.id) };
   });
 
+  // Dismiss a notification without reading it.
   route('DELETE', '/api/notifications', { auth: true }, (ctx) => ({ removed: clearNotifications(ctx.user.id) }));
 
+  // Responsible-gaming state: every limit in force, self-exclusion and cool-down expiry, session clock.
   route('GET', '/api/rg/status', { auth: true }, (ctx) => {
     const u = get(`SELECT * FROM users WHERE id = :id`, { id: ctx.user.id });
     const loss = netLossToday(ctx.user.id);
@@ -52,22 +56,26 @@ export function registerAccountRoutes(route) {
     };
   });
 
+  // Set or clear daily loss, weekly wager, session and reality-check limits. Lowering is instant; raising is checked.
   route('POST', '/api/rg/limits', { auth: true, limit: 'write' }, (ctx) => ({
     ...setLimits(ctx.user.id, ctx.body || {}),
     status: { todayNetLoss: netLossToday(ctx.user.id) },
   }));
 
+  // Lock play for hours or months. Signs every device out and cannot be shortened by staff.
   route('POST', '/api/rg/self-exclude', { auth: true, limit: 'write' }, (ctx) => {
     const out = selfExclude(ctx.user.id, ctx.body?.hours);
     audit({ actorId: ctx.user.id, action: 'rg.self_exclusion_api', entity: 'user', entityId: ctx.user.id, meta: { hours: ctx.body?.hours } });
     return out;
   });
 
+  // This account's support tickets and their status.
   route('GET', '/api/tickets', { auth: true }, (ctx) => ({
     rows: all(`SELECT id, ref, category, subject, status, priority, created_at AS createdAt, updated_at AS updatedAt
                FROM support_tickets WHERE user_id = :u ORDER BY id DESC LIMIT 30`, { u: ctx.user.id }),
   }));
 
+  // Open a support ticket. A bet reference can be attached so staff see the exact round.
   route('POST', '/api/tickets', { auth: true, limit: 'write' }, (ctx) => {
     const subject = String(ctx.body?.subject || '').trim().slice(0, 120);
     const body = String(ctx.body?.body || '').trim().slice(0, 4000);
@@ -88,6 +96,7 @@ export function registerAccountRoutes(route) {
     return { ref, id: ticket.id, status: 'open' };
   });
 
+  // One ticket with its full message thread.
   route('GET', '/api/tickets/:ref', { auth: true }, (ctx) => {
     const t = get(`SELECT * FROM support_tickets WHERE ref = :r AND (user_id = :u OR :staff = 1)`, { r: ctx.params.ref, u: ctx.user.id, staff: ['admin', 'moderator'].includes(ctx.user.role) ? 1 : 0 });
     if (!t) throw new HttpError(404, 'err.ticket_not_found');
@@ -98,6 +107,7 @@ export function registerAccountRoutes(route) {
     };
   });
 
+  // Reply on an open ticket.
   route('POST', '/api/tickets/:ref/reply', { auth: true, limit: 'write' }, (ctx) => {
     const body = String(ctx.body?.body || '').trim().slice(0, 4000);
     if (body.length < 3) throw new HttpError(422, 'val.too_short');
@@ -109,6 +119,7 @@ export function registerAccountRoutes(route) {
     return { ok: true };
   });
 
+  // Close your own ticket.
   route('POST', '/api/tickets/:ref/close', { auth: true }, (ctx) => {
     const r = run(`UPDATE support_tickets SET status = 'closed', updated_at = datetime('now') WHERE ref = :r AND user_id = :u`, { r: ctx.params.ref, u: ctx.user.id });
     if (!r.changes) throw new HttpError(404, 'err.ticket_not_found');
@@ -153,6 +164,7 @@ export function registerAccountRoutes(route) {
     return undefined;
   });
 
+  // Daily aggregates: wagered, returned, sessions and time played.
   route('GET', '/api/account/activity', { auth: true }, (ctx) => {
     const bets = listUserBets(ctx.user.id, { limit: 12 });
     return {

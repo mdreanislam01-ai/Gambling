@@ -24,10 +24,12 @@ export function registerAdminRoutes(route) {
     system: stats.systemStatus(),
   }));
 
+  // Per-game play counts, wagered and returned credits, and the measured versus labelled return.
   route('GET', '/api/admin/stats/games', { auth: 'staff' }, (ctx) => ({
     rows: stats.gameStats({ days: clamp(int(ctx.query.days, 30), 1, 365) }),
   }));
 
+  // Sign-up, activity and retention counts over a window.
   route('GET', '/api/admin/stats/users', { auth: 'staff' }, (ctx) => ({
     rows: stats.topUsers({ days: clamp(int(ctx.query.days, 30), 1, 365), limit: clamp(int(ctx.query.limit, 10), 1, 50) }),
   }));
@@ -43,6 +45,7 @@ export function registerAdminRoutes(route) {
     })
   );
 
+  // One account with wallet, limits, devices and recent audit rows.
   route('GET', '/api/admin/users/:id', { auth: 'staff' }, (ctx) => {
     const id = int(ctx.params.id, 0);
     const u = get(`SELECT u.*, w.balance, w.lifetime_wagered, w.lifetime_won FROM users u LEFT JOIN user_wallets w ON w.user_id = u.id WHERE u.id = :id`, { id });
@@ -58,14 +61,17 @@ export function registerAdminRoutes(route) {
     };
   });
 
+  // The only admin user edit: status, role, locks, self-exclusion or a password reset. No free-form fields.
   route('PATCH', '/api/admin/users/:id', { auth: 'admin' }, (ctx) => ({
     user: adminUpdateUser(actor(ctx), int(ctx.params.id, 0), ctx.body || {}, ctx.ip),
   }));
 
+  // Add or remove demo credits with a written reason, through the ledger.
   route('POST', '/api/admin/users/:id/credits', { auth: 'admin' }, (ctx) =>
     adminAdjustCredits(actor(ctx), int(ctx.params.id, 0), { amount: int(ctx.body?.amountCents ?? ctx.body?.amount, 0), reason: ctx.body?.reason }, ctx.ip)
   );
 
+  // Send an account a notification from the back office.
   route('POST', '/api/admin/users/:id/notify', { auth: 'staff' }, (ctx) => {
     const titleKey = String(ctx.body?.titleKey || 'notif.admin_message');
     notifyUser(int(ctx.params.id, 0), { titleKey, bodyKey: ctx.body?.bodyKey || null, params: ctx.body?.params || null, level: ctx.body?.level || 'info', link: ctx.body?.link || null });
@@ -76,12 +82,14 @@ export function registerAdminRoutes(route) {
   // ---- catalogue ----------------------------------------------------------
   route('GET', '/api/admin/games', { auth: 'staff' }, () => ({ rows: catalog.listAllGamesAdmin() }));
 
+  // Edit one game: limits, category, return target, edge, flags, config. Writes are audited.
   route('PATCH', '/api/admin/games/:key', { auth: 'admin' }, (ctx) => {
     const out = catalog.updateGame(ctx.params.key, ctx.body || {});
     audit({ actorId: ctx.user.id, actorRole: 'admin', action: 'admin.game_updated', entity: 'game', entityId: ctx.params.key, meta: ctx.body, ip: ctx.ip });
     return { game: out };
   });
 
+  // Add a game to the catalogue for an engine that already exists.
   route('POST', '/api/admin/games', { auth: 'admin' }, (ctx) => {
     const b = ctx.body || {};
     const key = String(b.key || '').toLowerCase().replace(/[^a-z0-9_]/g, '-').slice(0, 40);
@@ -109,11 +117,13 @@ export function registerAdminRoutes(route) {
     return { game: catalog.updateGame(key, {}) };
   });
 
+  // Studio tables with their round timing and dealer line-up.
   route('GET', '/api/admin/live-tables', { auth: 'staff' }, () => ({
     rows: all(`SELECT t.*, g.engine AS engine, g.enabled AS game_enabled FROM live_tables t JOIN games g ON g.key = t.game_key ORDER BY t.sort`),
     enginesRunning: { live: liveEngine.running, crash: crashEngine.running },
   }));
 
+  // Start, stop or re-time a live table, or change its dealer script.
   route('PATCH', '/api/admin/live-tables/:id', { auth: 'admin' }, (ctx) => {
     const id = int(ctx.params.id, 0);
     const fields = [];
@@ -143,6 +153,7 @@ export function registerAdminRoutes(route) {
     type: r.type, link: r.link, body: r.body_en, bodyBn: r.body_bn,
   });
 
+  // Home and lobby banners, active or scheduled, with their targets.
   route('GET', '/api/admin/banners', { auth: 'staff' }, () => ({ rows: all(`SELECT * FROM banners ORDER BY sort, id DESC`).map(contentRow) }));
 
   const bannerCols = {
@@ -150,6 +161,7 @@ export function registerAdminRoutes(route) {
     subtitleBn: 'subtitle_bn', ctaBn: 'cta_bn', badge: 'badge', target: 'target', media: 'media', accent: 'accent',
   };
 
+  // Create a banner and when it should run.
   route('POST', '/api/admin/banners', { auth: 'admin' }, (ctx) => {
     const b = ctx.body || {};
     if (!String(b.titleEn || '').trim()) throw new HttpError(422, 'val.failed', { errors: [{ field: 'titleEn', code: 'val.required' }] });
@@ -170,6 +182,7 @@ export function registerAdminRoutes(route) {
     return { banner: contentRow(get(`SELECT * FROM banners WHERE id = :id`, { id: Number(r.lastInsertRowid) })) };
   });
 
+  // Edit a banner's copy, media, links or schedule.
   route('PATCH', '/api/admin/banners/:id', { auth: 'admin' }, (ctx) => {
     const id = int(ctx.params.id, 0);
     const fields = [];
@@ -189,6 +202,7 @@ export function registerAdminRoutes(route) {
     return { banner: contentRow(get(`SELECT * FROM banners WHERE id = :id`, { id })) };
   });
 
+  // Retire a banner.
   route('DELETE', '/api/admin/banners/:id', { auth: 'admin' }, (ctx) => {
     const id = int(ctx.params.id, 0);
     if (!get(`SELECT 1 ok FROM banners WHERE id = :id`, { id })) throw new HttpError(404, 'err.not_found');
@@ -197,8 +211,10 @@ export function registerAdminRoutes(route) {
     return { ok: true };
   });
 
+  // Site-wide notices with their audience and window.
   route('GET', '/api/admin/announcements', { auth: 'staff' }, () => ({ rows: all(`SELECT * FROM announcements ORDER BY id DESC LIMIT 50`).map(contentRow) }));
 
+  // Publish an announcement.
   route('POST', '/api/admin/announcements', { auth: 'admin' }, (ctx) => {
     const b = ctx.body || {};
     if (!String(b.titleEn || '').trim() || !String(b.bodyEn || '').trim()) throw new HttpError(422, 'val.failed', { errors: [{ field: 'titleEn', code: 'val.required' }, { field: 'bodyEn', code: 'val.required' }].filter((e) => !String(b[e.field]).trim()) });
@@ -222,6 +238,7 @@ export function registerAdminRoutes(route) {
     return { announcement: contentRow(get(`SELECT * FROM announcements WHERE id = :id`, { id })) };
   });
 
+  // Edit an announcement.
   route('PATCH', '/api/admin/announcements/:id', { auth: 'admin' }, (ctx) => {
     const id = int(ctx.params.id, 0);
     const fields = [];
@@ -240,6 +257,7 @@ export function registerAdminRoutes(route) {
     return { announcement: contentRow(get(`SELECT * FROM announcements WHERE id = :id`, { id })) };
   });
 
+  // Withdraw an announcement.
   route('DELETE', '/api/admin/announcements/:id', { auth: 'admin' }, (ctx) => {
     run(`DELETE FROM announcements WHERE id = :id`, { id: int(ctx.params.id, 0) });
     audit({ actorId: ctx.user.id, actorRole: 'admin', action: 'admin.announcement_deleted', entity: 'announcement', entityId: ctx.params.id, ip: ctx.ip });
@@ -264,6 +282,7 @@ export function registerAdminRoutes(route) {
     };
   });
 
+  // The credit ledger: bonus, staff adjustments, stakes and payouts.
   route('GET', '/api/admin/transactions', { auth: 'staff' }, (ctx) => ({
     rows: all(
       `SELECT t.*, u.username FROM transactions t JOIN users u ON u.id = t.user_id
@@ -294,6 +313,7 @@ export function registerAdminRoutes(route) {
     return { changed, effective: allSettings().effective };
   });
 
+  // Turn maintenance mode on or off, with the message players will see.
   route('POST', '/api/admin/maintenance', { auth: 'admin' }, (ctx) => {
     const on = !!ctx.body?.on;
     setSetting('maintenance_mode', on);
@@ -307,15 +327,18 @@ export function registerAdminRoutes(route) {
     total: audit === undefined ? 0 : get(`SELECT COUNT(*) c FROM audit_logs`)?.c ?? 0,
   }));
 
+  // Captured server errors with counts and the last occurrence.
   route('GET', '/api/admin/errors', { auth: 'admin' }, (ctx) => ({
     rows: listErrors({ limit: clamp(int(ctx.query.limit, 40), 1, 200), unresolvedOnly: ctx.query.all !== '1' }),
   }));
 
+  // Mark an error signature resolved so it starts counting again.
   route('POST', '/api/admin/errors/:id/resolve', { auth: 'admin' }, (ctx) => {
     resolveError(int(ctx.params.id, 0));
     return { ok: true };
   });
 
+  // The demo outbox: every message the app would have sent, since there is no mail transport.
   route('GET', '/api/admin/mailbox', { auth: 'admin' }, (ctx) => ({ rows: listMail({ limit: clamp(int(ctx.query.limit, 40), 1, 100), email: ctx.query.email || null }) }));
 
   // ---- sports -------------------------------------------------------------
@@ -329,16 +352,19 @@ export function registerAdminRoutes(route) {
     })
   );
 
+  // Edit a demo fixture: time, teams, score, status.
   route('PATCH', '/api/admin/sports/fixtures/:id', { auth: 'admin' }, (ctx) => ({
     fixture: sports.updateFixture(actor(ctx), ctx.params.id, ctx.body || {}, ctx.ip),
   }));
 
+  // Settle a demo fixture against the recorded score and pay the slips.
   route('POST', '/api/admin/sports/fixtures/:id/settle', { auth: 'admin' }, (ctx) => {
     const out = sports.settleFixture(int(ctx.params.id, 0), { source: 'admin' });
     audit({ actorId: ctx.user.id, actorRole: 'admin', action: 'admin.fixture_settled', entity: 'fixture', entityId: ctx.params.id, meta: out, ip: ctx.ip });
     return out;
   });
 
+  // Suspend or resume one market, which is what stops new bets on it.
   route('POST', '/api/admin/sports/fixtures/:id/markets/suspend', { auth: 'admin' }, (ctx) => {
     sports.suspendMarkets(int(ctx.params.id, 0), ctx.body?.suspended !== false);
     return { ok: true };
@@ -397,6 +423,7 @@ export function registerAdminRoutes(route) {
     ),
   }));
 
+  // Reply to a player and move the ticket to waiting-on-player.
   route('POST', '/api/admin/tickets/:id/reply', { auth: 'staff' }, (ctx) => {
     const id = int(ctx.params.id, 0);
     const body = String(ctx.body?.body || '').trim().slice(0, 4000);
@@ -412,6 +439,7 @@ export function registerAdminRoutes(route) {
     return { ok: true };
   });
 
+  // Set a ticket's status or priority, or assign it to a staff account.
   route('PATCH', '/api/admin/tickets/:id', { auth: 'staff' }, (ctx) => {
     const id = int(ctx.params.id, 0);
     const fields = [];

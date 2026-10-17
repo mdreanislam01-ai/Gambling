@@ -30,6 +30,7 @@ const activeAnnouncements = () =>
   }));
 
 export function registerSystemRoutes(route) {
+  // Liveness for a load balancer: uptime, database reachability, demo and maintenance flags.
   route('GET', '/api/health', () => ({
     status: 'ok',
     uptimeSeconds: Math.floor(process.uptime()),
@@ -73,6 +74,7 @@ export function registerSystemRoutes(route) {
     };
   });
 
+  // The SSE stream this tab listens to for wallet, bet, round and score updates.
   route('GET', '/api/events', (ctx) => {
     bindSse(ctx);
     return undefined; // raw SSE stream
@@ -107,6 +109,7 @@ export function registerSystemRoutes(route) {
     termsVersion: setting('terms_version', '1.0.0'),
   }));
 
+  // One policy document, already rendered in the request's language.
   route('GET', '/api/legal/:doc', (ctx) => {
     const aliases = {
       'gambling-help': 'help', gambling_help: 'help', help: 'help', 'how-to-play': 'rules',

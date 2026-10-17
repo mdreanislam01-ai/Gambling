@@ -9,6 +9,7 @@ import { readStake } from './auth.js';
 import { json } from '../lib/util.js';
 
 export function registerSportsRoutes(route) {
+  // Fixtures with markets and prices, filtered by sport, league, status or date.
   route('GET', '/api/sports/fixtures', (ctx) => {
     const out = sports.listFixtures({
       sport: ctx.query.sport || null,
@@ -26,8 +27,10 @@ export function registerSportsRoutes(route) {
     };
   });
 
+  // Leagues and competitions with fixture counts, for the sidebar.
   route('GET', '/api/sports/leagues', (ctx) => ({ rows: sports.listLeagues({ sport: ctx.query.sport || null }) }));
 
+  // One fixture: teams, scoreboard, every market and the demo result source.
   route('GET', '/api/sports/fixtures/:id', (ctx) => {
     const f = sports.getFixture(ctx.params.id);
     if (!f) throw new HttpError(404, 'sports.fixture_not_found');
@@ -38,6 +41,7 @@ export function registerSportsRoutes(route) {
     return { fixture: f, myBets, simulated: f.source === 'demo' };
   });
 
+  // Place a demo slip: single or multi, priced from the stored selection odds.
   route('POST', '/api/sports/bet', { auth: true, limit: 'bet' }, (ctx) => {
     const legs = Array.isArray(ctx.body?.legs) ? ctx.body.legs : [];
     const stake = readStake(ctx.body);
@@ -45,6 +49,7 @@ export function registerSportsRoutes(route) {
     return { ...out, wallet: walletSummary(ctx.user.id), currency: config.demo.currency };
   });
 
+  // Whether a provider is connected, when data last synced, and the demo-data flag.
   route('GET', '/api/sports/status', () => ({
     provider: config.sports.provider,
     liveData: providerEnabled(),
@@ -54,6 +59,7 @@ export function registerSportsRoutes(route) {
     explanationKey: providerEnabled() ? 'sports.provider_live' : 'sports.demo_only',
   }));
 
+  // Ask the configured provider for fresh scores. With no provider it says so instead of inventing any.
   route('POST', '/api/sports/refresh', { auth: 'admin' }, async () => {
     if (!providerEnabled()) throw new HttpError(409, 'sports.provider_not_configured');
     const r = await fetchFixtures();
